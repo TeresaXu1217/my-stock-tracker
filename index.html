@@ -1,0 +1,457 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { TrendingUp, TrendingDown, PlusCircle, Download, List, PieChart, History, Trash2, Calendar } from 'lucide-react';
+
+// --- Firebase Initialization (Strict Pattern) ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'stock-tracker-app';
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    symbol: '',
+    type: 'buy', // 'buy' | 'sell'
+    price: '',
+    amount: '', // Total amount (本金/贖回總額)
+    notes: ''
+  });
+
+  // 1. Auth Init
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("Auth error:", error);
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Fetch Data
+  useEffect(() => {
+    if (!user) return;
+
+    const txRef = collection(db, 'artifacts', appId, 'users', user.uid, 'transactions');
+    const unsubscribe = onSnapshot(txRef, (snapshot) => {
+      const txData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Sort by date descending for general list
+      txData.sort((a, b) => new Date(b.date) - new Date(a.date));
+      setTransactions(txData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Firestore error:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- Logic & Calculations ---
+  
+  // Calculate holdings and realized profit using Moving Average Cost
+  const portfolio = useMemo(() => {
+    let holdings = {};
+    let totalRealizedProfit = 0;
+    let totalInvested = 0;
+
+    // Sort ascending for accurate cost calculation
+    const chronologicalTx = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    chronologicalTx.forEach(tx => {
+      if (!holdings[tx.symbol]) {
+        holdings[tx.symbol] = { symbol: tx.symbol, units: 0, avgCost: 0, realizedProfit: 0 };
+      }
+      
+      let h = holdings[tx.symbol];
+      let units = parseFloat(tx.units) || 0;
+      let price = parseFloat(tx.price) || 0;
+      let amount = parseFloat(tx.amount) || 0;
+
+      if (tx.type === 'buy') {
+        let currentTotalCost = h.units * h.avgCost;
+        let newTotalCost = currentTotalCost + amount;
+        h.units += units;
+        h.avgCost = h.units > 0 ? newTotalCost / h.units : 0;
+      } else if (tx.type === 'sell') {
+        // Realized profit = (Sell Price - Avg Cost) * Units Sold
+        let profitFromTrade = (price - h.avgCost) * units;
+        h.realizedProfit += profitFromTrade;
+        totalRealizedProfit += profitFromTrade;
+        
+        h.units -= units;
+        if (h.units <= 0.0001) { // Floating point safety
+          h.units = 0;
+          h.avgCost = 0;
+        }
+      }
+    });
+
+    const activeHoldings = Object.values(holdings).filter(h => h.units > 0 || h.realizedProfit !== 0);
+    
+    activeHoldings.forEach(h => {
+      totalInvested += (h.units * h.avgCost);
+    });
+
+    return { activeHoldings, totalRealizedProfit, totalInvested };
+  }, [transactions]);
+
+  // --- Handlers ---
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+
+    const price = parseFloat(formData.price);
+    const amount = parseFloat(formData.amount);
+    
+    if (isNaN(price) || isNaN(amount) || price <= 0 || amount <= 0) {
+      alert("請輸入有效的價格和金額");
+      return;
+    }
+
+    // Auto calculate units (股數/單位數)
+    const units = amount / price;
+
+    const txRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'));
+    await setDoc(txRef, {
+      ...formData,
+      price,
+      amount,
+      units,
+      createdAt: new Date().toISOString()
+    });
+
+    setIsModalOpen(false);
+    setFormData({ ...formData, symbol: '', price: '', amount: '', notes: '' }); // keep date and type
+  };
+
+  const handleDelete = async (id) => {
+    if (!user) return;
+    // In a real app, use a custom modal instead of window.confirm if possible, 
+    // but for simple single-file we will trust the user action or implement a quick undo.
+    // Given the prompt rules: "Never use confirm() - code runs in iframe." 
+    // We will just delete it directly for seamless UX in this preview.
+    const txRef = doc(db, 'artifacts', appId, 'users', user.uid, 'transactions', id);
+    await deleteDoc(txRef);
+  };
+
+  const handleExportCSV = () => {
+    const headers = ["日期", "標的代號", "操作", "單價", "單位數", "總金額(本金/贖回)", "備註"];
+    const rows = transactions.map(tx => [
+      tx.date,
+      tx.symbol,
+      tx.type === 'buy' ? '買入' : '賣出',
+      tx.price.toFixed(2),
+      tx.units.toFixed(4),
+      tx.amount.toFixed(2),
+      tx.notes || ''
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(e => e.join(","))
+    ].join("\n");
+
+    // Add BOM for Excel utf-8 encoding support
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `投資紀錄_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // --- Render Helpers ---
+
+  if (loading) {
+    return <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500">載入中...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
+      {/* Header */}
+      <header className="bg-slate-900 text-white shadow-md sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="text-emerald-400" />
+            <h1 className="text-xl font-bold tracking-wider">投資回測紀錄 App</h1>
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-full flex items-center gap-2 text-sm font-medium transition-colors"
+          >
+            <PlusCircle size={18} />
+            <span className="hidden sm:inline">新增紀錄</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 max-w-4xl mx-auto w-full p-4 pb-24">
+        
+        {/* Tab Navigation */}
+        <div className="flex space-x-2 mb-6 bg-white p-1 rounded-xl shadow-sm overflow-x-auto">
+          {[
+            { id: 'dashboard', icon: PieChart, label: '總覽與庫存' },
+            { id: 'history', icon: History, label: '交易明細' },
+            { id: 'analysis', icon: List, label: '匯出與結算' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.id 
+                  ? 'bg-slate-100 text-slate-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-slate-700 hover:bg-gray-50'
+              }`}
+            >
+              <tab.icon size={18} />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content: Dashboard */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                <p className="text-sm text-gray-500 mb-1">累計已實現損益</p>
+                <h2 className={`text-3xl font-bold ${portfolio.totalRealizedProfit >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {portfolio.totalRealizedProfit >= 0 ? '+' : ''}{portfolio.totalRealizedProfit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </h2>
+              </div>
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                <p className="text-sm text-gray-500 mb-1">目前投入總本金 (持有成本)</p>
+                <h2 className="text-3xl font-bold text-slate-800">
+                  {portfolio.totalInvested.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </h2>
+              </div>
+            </div>
+
+            {/* Holdings List */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="p-4 border-b border-gray-100 bg-slate-50">
+                <h3 className="font-semibold text-slate-800">各標的績效與庫存</h3>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {portfolio.activeHoldings.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400">目前無庫存紀錄</div>
+                ) : (
+                  portfolio.activeHoldings.map((h, i) => (
+                    <div key={i} className="p-4 hover:bg-gray-50 transition-colors flex flex-col sm:flex-row justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-lg text-slate-900">{h.symbol}</span>
+                          {h.units > 0 && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">持有中</span>}
+                        </div>
+                        <div className="text-sm text-gray-500 mt-1">
+                          平均成本: {h.avgCost.toFixed(2)} | 庫存單位: {h.units.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-500">已實現獲利</p>
+                        <p className={`font-semibold ${h.realizedProfit >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {h.realizedProfit > 0 ? '+' : ''}{h.realizedProfit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content: History */}
+        {activeTab === 'history' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+             <div className="p-4 border-b border-gray-100 bg-slate-50 flex justify-between items-center">
+                <h3 className="font-semibold text-slate-800">所有交易紀錄 (時間軸)</h3>
+                <span className="text-xs text-gray-500">共 {transactions.length} 筆</span>
+              </div>
+            <div className="divide-y divide-gray-100">
+              {transactions.length === 0 ? (
+                <div className="p-8 text-center text-gray-400">無交易紀錄，點擊右上角新增</div>
+              ) : (
+                transactions.map((tx) => (
+                  <div key={tx.id} className="p-4 flex items-center justify-between hover:bg-gray-50 group">
+                    <div className="flex items-start gap-4">
+                      <div className={`mt-1 p-2 rounded-full ${tx.type === 'buy' ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                        {tx.type === 'buy' ? <TrendingDown size={18} /> : <TrendingUp size={18} />}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-bold px-2 py-0.5 rounded ${tx.type === 'buy' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                            {tx.type === 'buy' ? '買入' : '賣出'}
+                          </span>
+                          <span className="font-bold text-slate-800">{tx.symbol}</span>
+                        </div>
+                        <div className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                          <Calendar size={14} /> {tx.date}
+                        </div>
+                        {tx.notes && <div className="text-sm text-gray-400 mt-1">備註: {tx.notes}</div>}
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center gap-4">
+                      <div>
+                        <div className="font-semibold text-slate-900">總額: {tx.amount.toLocaleString()}</div>
+                        <div className="text-xs text-gray-500">單價: {tx.price} | 單位: {tx.units.toFixed(2)}</div>
+                      </div>
+                      <button 
+                        onClick={() => handleDelete(tx.id)}
+                        className="text-gray-300 hover:text-red-500 transition-colors p-2 md:opacity-0 group-hover:opacity-100"
+                        title="刪除紀錄"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content: Analysis & Export */}
+        {activeTab === 'analysis' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <h3 className="text-lg font-semibold text-slate-800 mb-2">資料匯出與備份</h3>
+              <p className="text-gray-500 text-sm mb-6">將所有的交易紀錄與回測時間點匯出為 CSV 試算表，方便您在 Excel 或 Google Sheets 進行每月結算或更深入的圖表分析。</p>
+              
+              <button 
+                onClick={handleExportCSV}
+                className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-6 py-3 rounded-xl flex items-center justify-center gap-2 font-medium transition-colors"
+              >
+                <Download size={20} />
+                匯出完整交易試算表 (.csv)
+              </button>
+            </div>
+
+            <div className="bg-blue-50 rounded-2xl shadow-sm border border-blue-100 p-6">
+              <h3 className="text-lg font-semibold text-blue-900 mb-2">關於每日更新與回測</h3>
+              <ul className="list-disc list-inside text-blue-800 text-sm space-y-2">
+                <li>本系統紀錄您的真實買賣點，透過列表的時間軸，您可以隨時對照券商的走勢圖，回測當時進出場的判斷是否正確。</li>
+                <li>若需要紀錄每日未實現損益，建議可以在「備註」欄位填寫當日觀察心得（如：RSI過熱、均線黃金交叉等），作為未來的決策參考。</li>
+              </ul>
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* Add Transaction Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-lg text-slate-800">新增紀錄 (扣款/贖回)</h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">交易日期 (扣款/贖回日)</label>
+                <input 
+                  type="date" name="date" required value={formData.date} onChange={handleInputChange}
+                  className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">操作類型</label>
+                  <select 
+                    name="type" value={formData.type} onChange={handleInputChange}
+                    className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                  >
+                    <option value="buy">買入 (扣款)</option>
+                    <option value="sell">賣出 (贖回)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">標的代號/名稱</label>
+                  <input 
+                    type="text" name="symbol" required placeholder="例如: 0050" value={formData.symbol} onChange={handleInputChange}
+                    className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none uppercase"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">成交單價 (淨值/股價)</label>
+                  <input 
+                    type="number" step="0.01" name="price" required placeholder="例如: 150.5" value={formData.price} onChange={handleInputChange}
+                    className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">總金額 (本金/贖回金額)</label>
+                  <input 
+                    type="number" step="1" name="amount" required placeholder="例如: 10000" value={formData.amount} onChange={handleInputChange}
+                    className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+              
+              <div className="bg-slate-50 p-3 rounded-lg text-sm text-gray-600 flex justify-between">
+                <span>自動計算單位數/股數:</span>
+                <span className="font-semibold text-slate-900">
+                  {(formData.price && formData.amount && !isNaN(formData.price) && !isNaN(formData.amount)) 
+                    ? (parseFloat(formData.amount) / parseFloat(formData.price)).toFixed(4) 
+                    : '0.0000'}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">備註 (回測日記/操作理由)</label>
+                <textarea 
+                  name="notes" placeholder="例如: KD值小於20分批買進..." value={formData.notes} onChange={handleInputChange} rows="2"
+                  className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+                ></textarea>
+              </div>
+
+              <div className="pt-2">
+                <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors">
+                  儲存紀錄
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
