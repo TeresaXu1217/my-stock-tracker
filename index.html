@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>專業個人資產管理系統</title>
+  <title>專業資產管理系統</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -25,13 +25,20 @@
 
   <style>
     :root {
-      --bg-color: #f1f5f9;
-      --card-bg: #ffffff;
-      --text-main: #1e293b;
-      --text-muted: #64748b;
-      --up-color: #ef4444; /* 台股紅漲 */
-      --down-color: #10b981; /* 台股綠跌 */
-      --primary-accent: #3b82f6; /* 主題藍 */
+      /* 冷色系/文青風色板 (參考國泰/質感金融App) */
+      --bg-color: #F4F7F9;
+      --card-bg: #FFFFFF;
+      --text-main: #2C3E50;
+      --text-muted: #7F8C8D;
+      --up-color: #E53935; /* 台股紅漲 */
+      --down-color: #059669; /* 台股綠跌 */
+      
+      /* 資產類別顏色 */
+      --color-tw-stock: #1E3A8A; /* 深藍 */
+      --color-us-stock: #3B82F6; /* 亮藍 */
+      --color-tw-etf:   #0D9488; /* 深海綠 */
+      --color-fund:     #6366F1; /* 莫蘭迪紫 */
+      --color-cash:     #94A3B8; /* 質感灰 */
     }
     body { font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", sans-serif; background-color: var(--bg-color); color: var(--text-main); -webkit-font-smoothing: antialiased; }
     
@@ -39,16 +46,15 @@
     ::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     
-    .bento-card { background: var(--card-bg); border-radius: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02); border: 1px solid #e2e8f0; transition: transform 0.2s ease, box-shadow 0.2s ease; }
-    .bento-card:hover { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.02); }
-    
-    .glass-modal { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2); }
+    /* 圓角柔和卡片 */
+    .bento-card { background: var(--card-bg); border-radius: 24px; box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03); border: 1px solid rgba(0,0,0,0.02); transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .bento-card:hover { box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.05); }
 
     .nav-btn { transition: all 0.2s; border-radius: 12px; }
-    .nav-btn.active { background-color: var(--text-main); color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .nav-btn.active { background-color: var(--text-main); color: white; box-shadow: 0 4px 12px rgba(44, 62, 80, 0.15); }
   </style>
 </head>
-<body class="pb-20 md:pb-8">
+<body class="pb-24 md:pb-8">
   <div id="root"></div>
 
   <script type="text/babel">
@@ -79,11 +85,21 @@
     };
     const BUY_REASONS = ['技術面突破', '基本面財報', '籌碼面優勢', '攤平/向下建倉', '定期定額', '情緒衝動/FOMO'];
     const STRATEGY_TAGS = ['長線存股', '波段操作', '短線當沖', '實驗策略'];
-    const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1'];
+    
+    // 冷色系資產顏色配置
+    const ASSET_COLORS = {
+      TW_STOCK: '#1E3A8A', // 深藍
+      US_STOCK: '#3B82F6', // 亮藍
+      TW_ETF:   '#0D9488', // 深海綠
+      FUND:     '#6366F1', // 莫蘭迪紫
+      CASH:     '#94A3B8'  // 質感灰
+    };
+    const ASSET_LABELS = { TW_STOCK: '台股', US_STOCK: '海外股', TW_ETF: 'ETF', FUND: '基金', CASH: '現金' };
 
     // 格式化工具 (台灣標準：紅漲綠跌)
-    const fmtM = (num) => Number(num || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-    const getColorClass = (num) => num > 0 ? 'text-[#ef4444]' : num < 0 ? 'text-[#10b981]' : 'text-slate-500';
+    const fmtM = (num) => Number(num || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const fmtDec = (num) => Number(num || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const getColorClass = (num) => num > 0 ? 'text-[#E53935]' : num < 0 ? 'text-[#059669]' : 'text-slate-500';
 
     // --- 主元件 ---
     function App() {
@@ -134,11 +150,21 @@
         return () => { unsubTx(); unsubCash(); unsubPrice(); };
       }, [user]);
 
-      // --- 核心財務引擎 (三水桶 + 精準歷史損益) ---
+      // --- 核心財務引擎 (三水桶 + 分類統計) ---
       const portfolio = useMemo(() => {
         let holdings = {};
         let sys = { totalDeposits: 0, totalWithdrawals: 0, availableCash: 0, totalRealized: 0, totalUnrealized: 0, totalMarketValue: 0 };
         
+        // 分類統計初始化
+        let categoryStats = {
+          TW_STOCK: { value: 0, color: ASSET_COLORS.TW_STOCK, label: ASSET_LABELS.TW_STOCK },
+          US_STOCK: { value: 0, color: ASSET_COLORS.US_STOCK, label: ASSET_LABELS.US_STOCK },
+          TW_ETF: { value: 0, color: ASSET_COLORS.TW_ETF, label: ASSET_LABELS.TW_ETF },
+          FUND: { value: 0, color: ASSET_COLORS.FUND, label: ASSET_LABELS.FUND },
+          CASH: { value: 0, color: ASSET_COLORS.CASH, label: ASSET_LABELS.CASH }
+        };
+
+        // 現金流水
         cashFlows.forEach(cf => {
           const amt = parseFloat(cf.amount) || 0;
           if (cf.type === 'deposit') { sys.totalDeposits += amt; sys.availableCash += amt; }
@@ -146,10 +172,12 @@
           else if (cf.type === 'dividend') { sys.availableCash += amt; sys.totalRealized += amt; }
         });
         sys.netPrincipal = sys.totalDeposits - sys.totalWithdrawals;
+        categoryStats.CASH.value = sys.availableCash;
 
+        // 交易明細
         transactions.forEach(tx => {
           let sym = tx.symbol || tx.name;
-          if (!holdings[sym]) { holdings[sym] = { symbol: sym, name: tx.name, assetType: tx.assetType, qty: 0, totalCost: 0, avgCost: 0, realizedProfit: 0, buyQueue: [] }; }
+          if (!holdings[sym]) { holdings[sym] = { symbol: sym, name: tx.name, assetType: tx.assetType || 'TW_STOCK', qty: 0, totalCost: 0, avgCost: 0, realizedProfit: 0, buyQueue: [] }; }
           let h = holdings[sym];
           let qty = parseFloat(tx.shares) || 0;
           let netAmount = parseFloat(tx.netAmount) || 0;
@@ -157,6 +185,7 @@
           if (tx.type === 'buy') {
             h.qty += qty; h.totalCost += netAmount; h.avgCost = h.totalCost / h.qty;
             sys.availableCash -= netAmount;
+            categoryStats.CASH.value = sys.availableCash; // 同步更新現金分類
             h.buyQueue.push({ qty, netAmount });
           } else if (tx.type === 'dividend_reinvest') {
             h.qty += qty; h.avgCost = h.totalCost / h.qty;
@@ -170,14 +199,17 @@
             }
             let profit = netAmount - realizedCost;
             h.realizedProfit += profit; sys.totalRealized += profit; sys.availableCash += netAmount;
+            categoryStats.CASH.value = sys.availableCash;
             h.qty -= qty; h.totalCost -= realizedCost;
             if (h.qty <= 0.0001) { h.qty = 0; h.totalCost = 0; h.avgCost = 0; h.buyQueue = []; }
           }
         });
 
-        const activeHoldings = Object.values(holdings).filter(h => h.qty > 0 || h.realizedProfit !== 0); // 保留曾獲利的標的供分析
+        // 包含所有曾經持有過 (有戰績) 的標的，用以顯示歷史戰績
+        const allAssets = Object.values(holdings).filter(h => h.qty > 0 || h.realizedProfit !== 0); 
         
-        activeHoldings.forEach(h => {
+        // 結算未實現與各類別佔比
+        allAssets.forEach(h => {
           if (h.qty > 0) {
             let currentPrice = marketPrices[h.symbol] || h.avgCost;
             let marketValue = h.qty * currentPrice;
@@ -185,7 +217,13 @@
             
             h.currentPrice = currentPrice; h.marketValue = marketValue; h.unrealized = unrealized;
             h.roi = h.totalCost > 0 ? (unrealized / h.totalCost) * 100 : 0;
-            sys.totalMarketValue += marketValue; sys.totalUnrealized += unrealized;
+            
+            sys.totalMarketValue += marketValue; 
+            sys.totalUnrealized += unrealized;
+
+            if(categoryStats[h.assetType]) {
+              categoryStats[h.assetType].value += marketValue;
+            }
           } else {
             h.currentPrice = 0; h.marketValue = 0; h.unrealized = 0; h.roi = 0;
           }
@@ -194,11 +232,107 @@
         sys.totalAssets = sys.availableCash + sys.totalMarketValue;
         sys.totalPnl = sys.totalRealized + sys.totalUnrealized;
         
-        // 分類並按市值排序
-        const currentHoldings = activeHoldings.filter(h => h.qty > 0).sort((a,b)=>b.marketValue - a.marketValue);
+        // 過濾出目前真的有庫存的項目，並按市值排序
+        const currentHoldings = allAssets.filter(h => h.qty > 0).sort((a,b)=>b.marketValue - a.marketValue);
 
-        return { holdings: currentHoldings, allAssets: activeHoldings, sys };
+        return { holdings: currentHoldings, allAssets: allAssets, sys, categoryStats };
       }, [transactions, cashFlows, marketPrices]);
+
+      // --- 圖表元件：Doughnut (圓餅圖) ---
+      const DonutChart = ({ categoryStats, totalAssets }) => {
+        const canvasRef = useRef(null);
+        const chartInstance = useRef(null);
+        useEffect(() => {
+          if (!canvasRef.current || totalAssets === 0) return;
+          if (chartInstance.current) chartInstance.current.destroy();
+          
+          const validCats = Object.values(categoryStats).filter(c => c.value > 0);
+          
+          const ctx = canvasRef.current.getContext('2d');
+          chartInstance.current = new Chart(ctx, {
+            type: 'doughnut',
+            data: { 
+              labels: validCats.map(c => c.label), 
+              datasets: [{ data: validCats.map(c => c.value), backgroundColor: validCats.map(c => c.color), borderWidth: 0 }] 
+            },
+            options: { cutout: '75%', plugins: { legend: { display: false }, tooltip: { enabled: true } }, animation: { duration: 500 } }
+          });
+          return () => chartInstance.current?.destroy();
+        }, [categoryStats, totalAssets]);
+        
+        if(totalAssets === 0) return <div className="w-32 h-32 rounded-full border-[10px] border-slate-100 mx-auto"></div>;
+
+        return (
+          <div className="relative w-40 h-40 mx-auto flex-shrink-0">
+            <canvas ref={canvasRef}></canvas>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-[10px] text-slate-400 font-bold mb-0.5 tracking-widest">總資產</span>
+              <span className="text-lg font-bold text-slate-800 leading-none">{fmtM(totalAssets)}</span>
+            </div>
+          </div>
+        );
+      };
+
+      // --- 圖表元件：近30日走勢圖 (修復版 API) ---
+      const StockTrendChart = ({ asset }) => {
+        const canvasRef = useRef(null);
+        const chartInstance = useRef(null);
+        const [chartData, setChartData] = useState(null);
+        const [loadingChart, setLoadingChart] = useState(true);
+
+        useEffect(() => {
+          const fetchHistory = async () => {
+            if (asset.assetType === 'FUND' || asset.assetType === 'CASH') { setLoadingChart(false); return; }
+            try {
+              let yfSymbol = asset.symbol;
+              if (['TW_STOCK', 'TW_ETF'].includes(asset.assetType) && /^\d+$/.test(yfSymbol)) yfSymbol += '.TW';
+              // 修復：使用 /raw 取得原始 JSON 避免外層包裝造成的解析錯誤
+              const url = `https://query2.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1mo`;
+              const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+              
+              const res = await fetch(proxy);
+              if (!res.ok) throw new Error('API failed');
+              const data = await res.json();
+              
+              const timestamps = data.chart?.result?.[0]?.timestamp;
+              const closes = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+              
+              if (timestamps && closes) {
+                // 過濾掉 null 的交易日
+                let validData = [];
+                for(let i=0; i<timestamps.length; i++) {
+                  if(closes[i] !== null) validData.push({ t: timestamps[i], p: closes[i] });
+                }
+                const dates = validData.map(d => { const dt = new Date(d.t * 1000); return `${dt.getMonth()+1}/${dt.getDate()}`; });
+                const prices = validData.map(d => d.p);
+                setChartData({ labels: dates, prices: prices });
+              }
+            } catch (e) { console.log('Chart API Error', e); }
+            setLoadingChart(false);
+          };
+          fetchHistory();
+        }, [asset.symbol]);
+
+        useEffect(() => {
+          if (!canvasRef.current || !chartData) return;
+          if (chartInstance.current) chartInstance.current.destroy();
+          const ctx = canvasRef.current.getContext('2d');
+          
+          const isUp = chartData.prices[chartData.prices.length-1] >= chartData.prices[0];
+          const color = isUp ? '#E53935' : '#059669'; // 台股紅漲綠跌
+
+          chartInstance.current = new Chart(ctx, {
+            type: 'line',
+            data: { labels: chartData.labels, datasets: [{ data: chartData.prices, borderColor: color, borderWidth: 2.5, pointRadius: 0, tension: 0.2 }] },
+            options: { plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } }, responsive: true, maintainAspectRatio: false }
+          });
+          return () => chartInstance.current?.destroy();
+        }, [chartData]);
+
+        if (loadingChart) return <div className="h-32 flex items-center justify-center text-sm text-slate-400">正在抓取近30日走勢...</div>;
+        if (!chartData) return <div className="h-32 flex items-center justify-center text-sm text-slate-400 bg-slate-50/50 rounded-xl border border-slate-100">API 限制或不支援此標的線圖</div>;
+        return <div className="h-32 w-full"><canvas ref={canvasRef}></canvas></div>;
+      };
 
 
       // --- 表單與操作 ---
@@ -219,28 +353,20 @@
         const { name, value } = e.target;
         let newData = { ...tradeForm, [name]: value };
         
-        // 自動帶入股票名稱
         if (name === 'symbol' && !newData.isFundMode && STOCK_DICTIONARY[value.toUpperCase()]) {
           newData.name = STOCK_DICTIONARY[value.toUpperCase()].name;
           newData.assetType = STOCK_DICTIONARY[value.toUpperCase()].category;
         }
 
-        // --- 核心邏輯切換：股票 vs 基金 ---
         if (newData.isFundMode) {
-          // 基金模式：輸入「總金額(amount)」與「淨值(price)」，自動推算「單位數(shares)」
-          const amount = parseFloat(newData.amount) || 0;
-          const price = parseFloat(newData.price) || 0;
-          if (amount > 0 && price > 0) {
-            newData.shares = (amount / price).toFixed(5);
-            newData.netAmount = amount.toFixed(2); // 基金直接以總金額為淨額
-          } else { newData.shares = ''; newData.netAmount = ''; }
+          const amount = parseFloat(newData.amount) || 0; const price = parseFloat(newData.price) || 0;
+          if (amount > 0 && price > 0) { newData.shares = (amount / price).toFixed(5); newData.netAmount = amount.toFixed(2); } 
+          else { newData.shares = ''; newData.netAmount = ''; }
         } else {
-          // 股票模式：輸入「價(price)」與「量(shares)」，加上稅費，自動推算「淨額(netAmount)」
           const price = parseFloat(newData.price) || 0; const shares = parseFloat(newData.shares) || 0;
           const fee = parseFloat(newData.fee) || 0; const tax = parseFloat(newData.tax) || 0;
-          if (price > 0 && shares > 0) {
-            newData.netAmount = newData.type === 'buy' ? (price * shares + fee + tax).toFixed(2) : (price * shares - fee - tax).toFixed(2);
-          } else { newData.netAmount = ''; }
+          if (price > 0 && shares > 0) { newData.netAmount = newData.type === 'buy' ? (price * shares + fee + tax).toFixed(2) : (price * shares - fee - tax).toFixed(2); } 
+          else { newData.netAmount = ''; }
         }
         setTradeForm(newData);
       };
@@ -259,91 +385,37 @@
         setIsTradeModalOpen(false);
       };
 
-      // --- 個股走勢圖元件 ---
-      const StockTrendChart = ({ asset }) => {
-        const canvasRef = useRef(null);
-        const chartInstance = useRef(null);
-        const [chartData, setChartData] = useState(null);
-        const [loadingChart, setLoadingChart] = useState(true);
-
-        useEffect(() => {
-          const fetchHistory = async () => {
-            if (asset.assetType === 'FUND') { setLoadingChart(false); return; } // 國內基金抓不到API
-            try {
-              let yfSymbol = asset.symbol;
-              if (['TW_STOCK', 'TW_ETF'].includes(asset.assetType) && /^\d+$/.test(yfSymbol)) yfSymbol += '.TW';
-              const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1mo`;
-              const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-              const res = await fetch(proxy);
-              const data = await res.json();
-              const parsed = JSON.parse(data.contents);
-              const timestamps = parsed.chart.result[0].timestamp;
-              const closes = parsed.chart.result[0].indicators.quote[0].close;
-              
-              if (timestamps && closes) {
-                const dates = timestamps.map(t => { const d = new Date(t * 1000); return `${d.getMonth()+1}/${d.getDate()}`; });
-                setChartData({ labels: dates, prices: closes });
-              }
-            } catch (e) { console.log('Chart API Error'); }
-            setLoadingChart(false);
-          };
-          fetchHistory();
-        }, [asset.symbol]);
-
-        useEffect(() => {
-          if (!canvasRef.current || !chartData) return;
-          if (chartInstance.current) chartInstance.current.destroy();
-          const ctx = canvasRef.current.getContext('2d');
-          
-          // 決定走勢顏色 (首尾價格比較)
-          const isUp = chartData.prices[chartData.prices.length-1] >= chartData.prices[0];
-          const color = isUp ? '#ef4444' : '#10b981'; // 台灣紅漲綠跌
-
-          chartInstance.current = new Chart(ctx, {
-            type: 'line',
-            data: { labels: chartData.labels, datasets: [{ data: chartData.prices, borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.1 }] },
-            options: { plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } }, responsive: true, maintainAspectRatio: false }
-          });
-          return () => chartInstance.current?.destroy();
-        }, [chartData]);
-
-        if (loadingChart) return <div className="h-32 flex items-center justify-center text-sm text-slate-400">正在抓取近30日走勢...</div>;
-        if (!chartData) return <div className="h-32 flex items-center justify-center text-sm text-slate-400 bg-slate-50 rounded-xl">此標的無法取得歷史走勢，僅供數據參考。</div>;
-        return <div className="h-32 w-full"><canvas ref={canvasRef}></canvas></div>;
-      };
-
-
       // --- 渲染畫面 ---
-      if (loading) return <div className="flex h-screen items-center justify-center bg-slate-50 text-slate-400 font-bold">載入中...</div>;
+      if (loading) return <div className="flex h-screen items-center justify-center bg-[#F4F7F9] text-slate-400 font-bold">載入中...</div>;
       if (!user) {
         return (
-          <div className="flex h-screen items-center justify-center bg-slate-50 p-6">
-            <div className="w-full max-w-sm text-center bento-card p-10">
-              <div className="w-20 h-20 bg-blue-600 text-white rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-blue-200 text-4xl">💼</div>
-              <h1 className="text-3xl font-extrabold mb-2 text-slate-800 tracking-tight">個人資產大台</h1>
-              <p className="text-slate-500 mb-8 font-medium">結構化你的每一筆交易與資金流</p>
-              <button onClick={handleLogin} className="w-full bg-slate-900 text-white px-6 py-4 rounded-xl font-bold shadow-md hover:bg-black transition-all">安全登入系統</button>
+          <div className="flex h-screen items-center justify-center bg-[#F4F7F9] p-6">
+            <div className="w-full max-w-sm text-center bento-card p-10 shadow-xl">
+              <div className="w-20 h-20 bg-[#2C3E50] text-white rounded-[1.5rem] mx-auto flex items-center justify-center mb-6 shadow-lg text-4xl">🏦</div>
+              <h1 className="text-3xl font-extrabold mb-2 text-[#2C3E50] tracking-tight">個人資產大台</h1>
+              <p className="text-[#7F8C8D] mb-8 font-medium">冷色系文青風，結構化資金流</p>
+              <button onClick={handleLogin} className="w-full bg-[#2C3E50] text-white px-6 py-4 rounded-xl font-bold shadow-md hover:bg-[#1a252f] transition-all">安全登入系統</button>
             </div>
           </div>
         );
       }
 
       return (
-        <div className="min-h-screen max-w-3xl mx-auto md:pt-6">
+        <div className="min-h-screen max-w-5xl mx-auto md:pt-6">
           
-          {/* 頂部導航列 (Desktop / Mobile) */}
-          <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-20 md:rounded-2xl md:mb-6 border-b md:border border-slate-200 shadow-sm px-4 py-3 flex justify-between items-center">
+          {/* 頂部導航列 */}
+          <nav className="bg-white/90 backdrop-blur-md sticky top-0 z-20 md:rounded-2xl md:mb-6 border-b md:border border-slate-100 shadow-sm px-5 py-3 flex justify-between items-center">
             <div className="flex items-center gap-2">
-              <span className="text-2xl">💼</span>
-              <h1 className="font-extrabold text-xl text-slate-800 tracking-tight hidden sm:block">Asset<span className="text-blue-600">Track</span></h1>
+              <span className="text-2xl drop-shadow-sm">🏦</span>
+              <h1 className="font-extrabold text-xl text-[#2C3E50] tracking-tight hidden sm:block">Asset<span className="text-[#0D9488]">Track</span></h1>
             </div>
-            <div className="flex bg-slate-100 p-1 rounded-xl">
-              <button onClick={()=>setActiveTab('dashboard')} className={`nav-btn px-4 py-2 text-sm font-bold ${activeTab==='dashboard'?'active':'text-slate-500'}`}>📊 總覽</button>
-              <button onClick={()=>setActiveTab('history')} className={`nav-btn px-4 py-2 text-sm font-bold ${activeTab==='history'?'active':'text-slate-500'}`}>📝 日誌明細</button>
+            <div className="flex bg-slate-100/80 p-1 rounded-xl">
+              <button onClick={()=>setActiveTab('dashboard')} className={`nav-btn px-4 py-2 text-sm font-bold ${activeTab==='dashboard'?'active':'text-[#7F8C8D]'}`}>📊 總覽</button>
+              <button onClick={()=>setActiveTab('history')} className={`nav-btn px-4 py-2 text-sm font-bold ${activeTab==='history'?'active':'text-[#7F8C8D]'}`}>📝 交易明細</button>
             </div>
             <div className="flex gap-2">
-              <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="hidden md:block bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50">💰 資金池</button>
-              <button onClick={()=>auth.signOut()} className="bg-slate-100 text-slate-500 w-10 h-10 rounded-xl flex items-center justify-center font-bold hover:bg-slate-200">登出</button>
+              <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="hidden md:block bg-white border border-slate-200 text-[#2C3E50] px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition-colors">💰 資金池</button>
+              <button onClick={()=>auth.signOut()} className="bg-slate-100 text-[#7F8C8D] w-10 h-10 rounded-xl flex items-center justify-center font-bold hover:bg-slate-200 transition-colors">登出</button>
             </div>
           </nav>
 
@@ -352,49 +424,92 @@
             {/* 視圖：帳務總覽 */}
             {activeTab === 'dashboard' && (
               <>
-                {/* 三水桶核心看板 */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  <div className="bento-card p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white col-span-2 sm:col-span-1 shadow-lg shadow-slate-900/20">
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">目前總資產</p>
-                    <h2 className="text-3xl font-extrabold tracking-tight">${fmtM(portfolio.sys.totalAssets)}</h2>
-                    <div className="mt-4 border-t border-white/10 pt-3">
-                      <p className="text-[10px] text-slate-400 mb-0.5">可用購買力 (現金)</p>
-                      <p className="font-bold text-blue-300 text-lg">${fmtM(portfolio.sys.availableCash)}</p>
+                {/* 頂部：資產分配條狀圖 (Progress Bar) */}
+                <div className="bento-card p-6">
+                  <div className="flex justify-between items-end mb-4">
+                    <div>
+                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-1">Total Assets</p>
+                      <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#2C3E50]">${fmtM(portfolio.sys.totalAssets)}</h2>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">淨投入本金</p>
+                      <p className="font-bold text-[#2C3E50]">${fmtM(portfolio.sys.netPrincipal)}</p>
                     </div>
                   </div>
-                  <div className="bento-card p-5 relative overflow-hidden bg-blue-50/50 border-blue-100">
-                    <p className="text-xs text-blue-600 font-bold uppercase tracking-wider mb-1">淨投入本金</p>
-                    <h3 className="text-2xl font-extrabold tracking-tight text-slate-800">${fmtM(portfolio.sys.netPrincipal)}</h3>
+                  
+                  {/* 分配條 */}
+                  <div className="w-full h-3 rounded-full flex overflow-hidden mb-4 bg-slate-100">
+                    {Object.values(portfolio.categoryStats).map((cat, i) => {
+                      if (cat.value === 0) return null;
+                      const pct = (cat.value / portfolio.sys.totalAssets) * 100;
+                      return <div key={i} style={{width: `${pct}%`, backgroundColor: cat.color}} className="transition-all duration-500"></div>;
+                    })}
                   </div>
-                  <div className={`bento-card p-5 relative overflow-hidden ${portfolio.sys.totalPnl >= 0 ? 'bg-red-50/50 border-red-100' : 'bg-emerald-50/50 border-emerald-100'}`}>
-                    <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${portfolio.sys.totalPnl >= 0 ? 'text-red-500' : 'text-emerald-500'}`}>生涯總損益</p>
-                    <h3 className={`text-2xl font-extrabold tracking-tight ${getColorClass(portfolio.sys.totalPnl)}`}>
-                      {portfolio.sys.totalPnl > 0 ? '+' : ''}${fmtM(portfolio.sys.totalPnl)}
-                    </h3>
+                  
+                  {/* 分配圖例 */}
+                  <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs font-bold text-[#7F8C8D]">
+                    {Object.values(portfolio.categoryStats).map((cat, i) => {
+                      if (cat.value === 0) return null;
+                      return (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-sm" style={{backgroundColor: cat.color}}></span>
+                          {cat.label} <span className="text-[#2C3E50] ml-0.5">{((cat.value/portfolio.sys.totalAssets)*100).toFixed(1)}%</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* 雙欄區塊：圓餅圖 & 三水桶損益 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* 圓餅圖區塊 */}
+                  <div className="bento-card p-6 flex flex-col items-center justify-center">
+                    <h3 className="font-bold text-[#2C3E50] w-full text-left mb-6">資產配置比例</h3>
+                    <DonutChart categoryStats={portfolio.categoryStats} totalAssets={portfolio.sys.totalAssets} />
+                    <div className="mt-8 w-full grid grid-cols-2 gap-4 text-sm border-t border-slate-100 pt-4">
+                      <div className="flex justify-between items-center"><span className="text-[#7F8C8D]">可用現金</span><span className="font-bold text-[#94A3B8]">${fmtM(portfolio.sys.availableCash)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-[#7F8C8D]">基金市值</span><span className="font-bold text-[#6366F1]">${fmtM(portfolio.categoryStats.FUND.value)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-[#7F8C8D]">台股市值</span><span className="font-bold text-[#1E3A8A]">${fmtM(portfolio.categoryStats.TW_STOCK.value)}</span></div>
+                      <div className="flex justify-between items-center"><span className="text-[#7F8C8D]">海外股/ETF</span><span className="font-bold text-[#3B82F6]">${fmtM(portfolio.categoryStats.US_STOCK.value + portfolio.categoryStats.TW_ETF.value)}</span></div>
+                    </div>
+                  </div>
+
+                  {/* 生涯損益與水桶 */}
+                  <div className="flex flex-col gap-6">
+                    <div className={`bento-card p-6 flex-1 flex flex-col justify-center relative overflow-hidden ${portfolio.sys.totalPnl >= 0 ? 'bg-red-50/40 border-red-100/50' : 'bg-emerald-50/40 border-emerald-100/50'}`}>
+                      <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${portfolio.sys.totalPnl >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>生涯總損益 (市場給的錢)</p>
+                      <h3 className={`text-4xl font-extrabold tracking-tight ${getColorClass(portfolio.sys.totalPnl)}`}>
+                        {portfolio.sys.totalPnl > 0 ? '+' : ''}${fmtM(portfolio.sys.totalPnl)}
+                      </h3>
+                      <div className="flex justify-between mt-6 pt-4 border-t border-slate-200/50 text-sm font-medium">
+                        <div className="text-slate-600">已實現入袋 <span className="font-bold block text-slate-800">${fmtM(portfolio.sys.totalRealized)}</span></div>
+                        <div className="text-right text-slate-600">未實現浮動 <span className="font-bold block text-slate-800">${fmtM(portfolio.sys.totalUnrealized)}</span></div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* 庫存部位清單 */}
                 <div className="bento-card overflow-hidden">
-                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-800">現有庫存部位</h3>
-                    <span className="text-xs text-slate-400">點擊標的可看專屬分析與走勢</span>
+                  <div className="px-6 py-5 border-b border-slate-100 bg-white flex justify-between items-center">
+                    <h3 className="font-bold text-[#2C3E50] text-lg">現有庫存明細</h3>
+                    <span className="text-xs text-[#7F8C8D] bg-slate-100 px-2 py-1 rounded-md">點擊卡片看走勢圖</span>
                   </div>
-                  <div className="divide-y divide-slate-100">
+                  <div className="divide-y divide-slate-50">
                     {portfolio.holdings.length === 0 ? (
-                      <div className="p-10 text-center text-slate-400">目前沒有庫存部位喔。</div>
+                      <div className="p-12 text-center text-[#7F8C8D] bg-slate-50/50">目前空手無庫存，現金為王！</div>
                     ) : (
                       portfolio.holdings.map((h, i) => (
-                        <div key={i} onClick={() => setSelectedAsset(h)} className="p-4 flex justify-between items-center hover:bg-slate-50 cursor-pointer transition-colors group">
+                        <div key={i} onClick={() => setSelectedAsset(h)} className="p-5 flex justify-between items-center hover:bg-slate-50 cursor-pointer transition-colors group">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-extrabold text-slate-900 text-lg group-hover:text-blue-600 transition-colors">{h.name || h.symbol}</span>
-                              <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded uppercase font-bold">{h.assetType === 'FUND' ? '基金' : '股票'}</span>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="w-2 h-2 rounded-full" style={{backgroundColor: ASSET_COLORS[h.assetType]}}></span>
+                              <span className="font-extrabold text-[#2C3E50] text-lg group-hover:text-blue-600 transition-colors">{h.name || h.symbol}</span>
                             </div>
-                            <div className="text-xs text-slate-500 font-mono mt-0.5">{h.qty.toFixed(h.assetType==='FUND'?4:0)} {h.assetType==='FUND'?'單位':'股'} • 均價 {h.avgCost.toFixed(2)}</div>
+                            <div className="text-xs text-[#7F8C8D] font-mono ml-4">{h.qty.toFixed(h.assetType==='FUND'?4:0)} {h.assetType==='FUND'?'單位':'股'} • 均價 {h.avgCost.toFixed(2)}</div>
                           </div>
                           <div className="text-right flex flex-col items-end gap-1">
-                            <div className="font-bold text-slate-800 font-mono">${fmtM(h.marketValue)}</div>
+                            <div className="font-bold text-[#2C3E50] font-mono">${fmtM(h.marketValue)}</div>
                             <div className={`text-sm font-bold ${getColorClass(h.unrealized)}`}>
                               {h.unrealized > 0 ? '+' : ''}{fmtM(h.unrealized)} ({h.roi > 0 ? '+' : ''}{h.roi.toFixed(1)}%)
                             </div>
@@ -409,17 +524,22 @@
 
             {/* 視圖：歷史與日誌 */}
             {activeTab === 'history' && (
-              <div className="bento-card overflow-hidden">
-                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                  <h3 className="font-bold text-slate-800">結構化交易日誌</h3>
-                  <button onClick={()=>openTradeModal()} className="bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-md">+ 新增交易</button>
+              <div className="bento-card overflow-hidden min-h-[60vh]">
+                <div className="px-6 py-5 border-b border-slate-100 bg-white flex justify-between items-center">
+                  <h3 className="font-bold text-[#2C3E50] text-lg">結構化交易日誌</h3>
+                  <button onClick={()=>openTradeModal()} className="bg-[#2C3E50] text-white text-xs px-4 py-2 rounded-xl font-bold shadow-md hover:bg-black transition-colors">+ 記一筆</button>
                 </div>
                 <div className="divide-y divide-slate-100">
-                  {transactions.slice().reverse().map(tx => (
-                    <div key={tx.id} className="p-5 hover:bg-slate-50 transition-colors relative group">
+                  {transactions.slice().reverse().map(tx => {
+                    // 尋找該標的歷史累積戰績
+                    const assetStats = portfolio.allAssets.find(a => a.symbol === (tx.symbol || tx.name));
+                    const historicalPnl = assetStats ? assetStats.realizedProfit : 0;
+                    
+                    return (
+                    <div key={tx.id} className="p-6 hover:bg-slate-50/50 transition-colors relative group">
                       <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={()=>openTradeModal(tx)} className="bg-white border border-slate-200 p-1.5 rounded-md shadow-sm text-blue-600 hover:bg-blue-50">✏️</button>
-                        <button onClick={()=>{ if(window.confirm('確定刪除這筆交易紀錄？')) db.collection('users').doc(user.uid).collection('transactions').doc(tx.id).delete(); }} className="bg-white border border-slate-200 p-1.5 rounded-md shadow-sm text-red-500 hover:bg-red-50">🗑️</button>
+                        <button onClick={()=>openTradeModal(tx)} className="bg-white border border-slate-200 p-2 rounded-lg shadow-sm text-blue-600 hover:bg-blue-50">✏️</button>
+                        <button onClick={()=>{ if(window.confirm('確定刪除這筆交易紀錄？')) db.collection('users').doc(user.uid).collection('transactions').doc(tx.id).delete(); }} className="bg-white border border-slate-200 p-2 rounded-lg shadow-sm text-red-500 hover:bg-red-50">🗑️</button>
                       </div>
                       
                       <div className="flex items-start gap-4">
@@ -427,99 +547,111 @@
                           {tx.type === 'buy' ? '買進' : tx.type === 'dividend_reinvest' ? '配息' : '賣出'}
                         </div>
                         <div className="flex-1 pr-16">
-                          <div className="font-extrabold text-slate-900 text-lg">{tx.name || tx.symbol} <span className="text-[10px] text-slate-400 font-normal ml-1">{tx.date}</span></div>
-                          
-                          <div className="flex flex-wrap gap-x-4 text-sm text-slate-600 mt-1 mb-2 font-mono">
-                            <span>{tx.assetType==='FUND'?'淨值':'價'}: ${tx.price}</span>
-                            <span>{tx.assetType==='FUND'?'單位':'量'}: {tx.shares}</span>
-                            <span className="font-bold text-slate-900">淨額: ${fmtM(tx.netAmount)}</span>
+                          <div className="flex items-center gap-3">
+                            <h4 className="font-extrabold text-[#2C3E50] text-lg cursor-pointer hover:text-blue-600" onClick={()=>{if(assetStats) setSelectedAsset(assetStats);}}>{tx.name || tx.symbol}</h4>
+                            <span className="text-[10px] text-[#7F8C8D] font-mono">{tx.date}</span>
                           </div>
                           
-                          {/* 智慧標籤 (Smart Journal) */}
-                          <div className="flex flex-wrap gap-1.5">
-                            {tx.strategy && <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold">🏷️ {tx.strategy}</span>}
-                            {tx.reason && <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[10px] font-bold">💡 {tx.reason}</span>}
-                            {tx.confidence && tx.type === 'buy' && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 rounded text-[10px] font-bold">⭐ {tx.confidence}星</span>}
+                          <div className="flex flex-wrap gap-x-5 text-sm text-[#2C3E50] mt-2 mb-3 bg-white border border-slate-100 p-3 rounded-xl shadow-sm">
+                            <span className="text-[#7F8C8D]">{tx.assetType==='FUND'?'淨值':'價'}: <span className="font-bold text-[#2C3E50]">${tx.price}</span></span>
+                            <span className="text-[#7F8C8D]">{tx.assetType==='FUND'?'單位':'量'}: <span className="font-bold text-[#2C3E50]">{tx.shares}</span></span>
+                            <span className="text-[#7F8C8D]">淨額: <span className="font-extrabold text-[#2C3E50]">${fmtM(tx.netAmount)}</span></span>
                           </div>
-                          {tx.notes && <p className="text-xs text-slate-500 italic mt-2 bg-white border border-slate-100 p-2 rounded-lg">"{tx.notes}"</p>}
+                          
+                          {/* 智慧標籤 (Smart Journal) & 歷史戰績 */}
+                          <div className="flex flex-wrap gap-2 items-center">
+                            {tx.strategy && <span className="px-2.5 py-1 bg-slate-100 text-[#7F8C8D] rounded-md text-[10px] font-bold">🏷️ {tx.strategy}</span>}
+                            {tx.reason && <span className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-md text-[10px] font-bold">💡 {tx.reason}</span>}
+                            {tx.confidence && tx.type === 'buy' && <span className="px-2.5 py-1 bg-amber-50 text-amber-600 rounded-md text-[10px] font-bold">⭐ {tx.confidence}星</span>}
+                            {/* 解決痛點 1: 清倉標的也能看戰績 */}
+                            {historicalPnl !== 0 && (
+                              <span onClick={()=>{if(assetStats) setSelectedAsset(assetStats);}} className={`cursor-pointer px-2.5 py-1 rounded-md text-[10px] font-bold border ${historicalPnl > 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                🎯 該標的累積戰績: {historicalPnl > 0 ? '+' : ''}{fmtM(historicalPnl)}
+                              </span>
+                            )}
+                          </div>
+                          {tx.notes && <p className="text-xs text-[#7F8C8D] mt-2.5 bg-slate-50 p-2.5 rounded-lg border border-slate-100">" {tx.notes} "</p>}
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}
           </main>
 
           {/* 移動端底部快捷列 */}
-          <div className="md:hidden fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-200 pb-safe pt-2 px-4 flex justify-between z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-            <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="flex flex-col items-center p-2 text-slate-500">
+          <div className="md:hidden fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-100 pb-safe pt-2 px-4 flex justify-between z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.03)]">
+            <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="flex flex-col items-center p-2 text-[#7F8C8D]">
               <span className="text-xl mb-1">💰</span><span className="text-[10px] font-bold">資金</span>
             </button>
             <div className="relative -top-6">
-              <button onClick={()=>openTradeModal()} className="w-14 h-14 bg-slate-900 rounded-full text-white flex items-center justify-center shadow-lg shadow-slate-900/30 active:scale-95 border-4 border-white text-2xl font-bold">
+              <button onClick={()=>openTradeModal()} className="w-14 h-14 bg-[#2C3E50] rounded-full text-white flex items-center justify-center shadow-xl shadow-[#2C3E50]/30 active:scale-95 border-[3px] border-white text-2xl font-bold transition-transform">
                 +
               </button>
             </div>
-            <button onClick={()=>auth.signOut()} className="flex flex-col items-center p-2 text-slate-500">
+            <button onClick={()=>auth.signOut()} className="flex flex-col items-center p-2 text-[#7F8C8D]">
               <span className="text-xl mb-1">🚪</span><span className="text-[10px] font-bold">登出</span>
             </button>
           </div>
 
           {/* --- Modal：個股詳細分析與走勢 --- */}
           {selectedAsset && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-[#2C3E50]/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
               <div className="bg-white w-full max-w-md rounded-[2rem] overflow-hidden flex flex-col shadow-2xl animate-fade-in-up">
                 <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start bg-slate-50">
                   <div>
-                    <h3 className="font-extrabold text-2xl text-slate-900">{selectedAsset.name || selectedAsset.symbol}</h3>
-                    <p className="text-sm text-slate-500 font-mono mt-1">{selectedAsset.symbol} • {selectedAsset.assetType === 'FUND' ? '共同基金' : '股票'}</p>
+                    <h3 className="font-extrabold text-2xl text-[#2C3E50]">{selectedAsset.name || selectedAsset.symbol}</h3>
+                    <p className="text-xs text-[#7F8C8D] font-mono mt-1">{selectedAsset.symbol} • {ASSET_LABELS[selectedAsset.assetType]}</p>
                   </div>
-                  <button onClick={() => setSelectedAsset(null)} className="bg-slate-200 text-slate-600 hover:bg-slate-300 w-8 h-8 rounded-full font-bold flex items-center justify-center">✕</button>
+                  <button onClick={() => setSelectedAsset(null)} className="bg-slate-200 text-[#7F8C8D] hover:bg-slate-300 w-8 h-8 rounded-full font-bold flex items-center justify-center transition-colors">✕</button>
                 </div>
                 
                 <div className="p-6 space-y-6">
-                  {/* 近期走勢圖 */}
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">近30日走勢參考</h4>
+                  {/* 近期走勢圖 (修復API) */}
+                  <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm">
+                    <h4 className="text-[10px] font-bold text-[#7F8C8D] uppercase tracking-wider mb-3">近30日走勢參考</h4>
                     <StockTrendChart asset={selectedAsset} />
                   </div>
 
                   {/* 庫存現況 */}
-                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <div><p className="text-xs text-slate-500 mb-1">持有量</p><p className="font-bold text-slate-800 font-mono">{selectedAsset.qty.toFixed(selectedAsset.assetType==='FUND'?4:0)}</p></div>
-                    <div><p className="text-xs text-slate-500 mb-1">平均成本</p><p className="font-bold text-slate-800 font-mono">${selectedAsset.avgCost.toFixed(2)}</p></div>
-                    <div className="col-span-2 pt-2 border-t border-slate-200">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-bold text-slate-500">手動修改當前淨值/股價:</span>
-                        <input type="number" step="0.01" value={selectedAsset.currentPrice||''} 
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            if(!isNaN(val)) {
-                              db.collection('users').doc(user.uid).collection('settings').doc('marketPrices').set({[selectedAsset.symbol]: val}, {merge:true});
-                              setSelectedAsset({...selectedAsset, currentPrice: val, marketValue: selectedAsset.qty * val, unrealized: (selectedAsset.qty * val) - selectedAsset.totalCost, roi: (((selectedAsset.qty * val) - selectedAsset.totalCost) / selectedAsset.totalCost) * 100});
-                            }
-                          }} 
-                          className="w-24 text-right bg-white border border-slate-300 px-2 py-1 rounded-lg outline-none focus:border-blue-500 font-mono font-bold" 
-                        />
-                      </div>
-                      <div className="flex justify-between items-end">
-                        <p className="text-sm font-bold text-slate-700">未實現損益 (帳面)</p>
-                        <div className="text-right">
-                          <p className={`font-extrabold text-xl ${getColorClass(selectedAsset.unrealized)}`}>{selectedAsset.unrealized > 0 ? '+' : ''}${fmtM(selectedAsset.unrealized)}</p>
-                          <p className={`text-xs font-bold ${getColorClass(selectedAsset.roi)}`}>{selectedAsset.roi > 0 ? '+' : ''}{selectedAsset.roi.toFixed(2)}%</p>
+                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                    <div><p className="text-xs text-[#7F8C8D] mb-1">持有量</p><p className="font-bold text-[#2C3E50] font-mono text-lg">{selectedAsset.qty.toFixed(selectedAsset.assetType==='FUND'?4:0)}</p></div>
+                    <div><p className="text-xs text-[#7F8C8D] mb-1">平均成本</p><p className="font-bold text-[#2C3E50] font-mono text-lg">${fmtDec(selectedAsset.avgCost)}</p></div>
+                    
+                    {selectedAsset.qty > 0 && (
+                      <div className="col-span-2 pt-3 mt-1 border-t border-slate-200">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-xs font-bold text-[#7F8C8D]">手動修改現價/淨值:</span>
+                          <input type="number" step="0.01" value={selectedAsset.currentPrice||''} 
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              if(!isNaN(val)) {
+                                db.collection('users').doc(user.uid).collection('settings').doc('marketPrices').set({[selectedAsset.symbol]: val}, {merge:true});
+                                setSelectedAsset({...selectedAsset, currentPrice: val, marketValue: selectedAsset.qty * val, unrealized: (selectedAsset.qty * val) - selectedAsset.totalCost, roi: (((selectedAsset.qty * val) - selectedAsset.totalCost) / selectedAsset.totalCost) * 100});
+                              }
+                            }} 
+                            className="w-28 text-right bg-white border border-slate-300 px-3 py-1.5 rounded-lg outline-none focus:border-[#3B82F6] focus:ring-1 focus:ring-[#3B82F6] font-mono font-bold transition-all shadow-inner" 
+                          />
+                        </div>
+                        <div className="flex justify-between items-end bg-white p-3 rounded-xl border border-slate-100">
+                          <p className="text-xs font-bold text-[#7F8C8D]">未實現損益 (帳面)</p>
+                          <div className="text-right">
+                            <p className={`font-extrabold text-xl ${getColorClass(selectedAsset.unrealized)}`}>{selectedAsset.unrealized > 0 ? '+' : ''}${fmtM(selectedAsset.unrealized)}</p>
+                            <p className={`text-[10px] font-bold ${getColorClass(selectedAsset.roi)}`}>{selectedAsset.roi > 0 ? '+' : ''}{selectedAsset.roi.toFixed(2)}%</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* 歷史戰績 */}
-                  <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex justify-between items-center">
+                  <div className="bg-slate-800 text-white p-5 rounded-2xl flex justify-between items-center shadow-md shadow-slate-800/20">
                     <div>
-                      <p className="text-xs text-blue-600 font-bold uppercase mb-1">歷史戰績</p>
-                      <p className="text-sm text-slate-700 font-medium">過去在此標的累計落袋</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">歷史戰績</p>
+                      <p className="text-sm font-bold">過去在此標的累計落袋</p>
                     </div>
-                    <p className={`text-2xl font-extrabold ${getColorClass(selectedAsset.realizedProfit)}`}>
+                    <p className={`text-2xl font-extrabold ${selectedAsset.realizedProfit >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                       {selectedAsset.realizedProfit > 0 ? '+' : ''}${fmtM(selectedAsset.realizedProfit)}
                     </p>
                   </div>
@@ -528,22 +660,21 @@
             </div>
           )}
 
-          {/* --- Modal：新增/編輯 交易表單 (極簡基金邏輯) --- */}
+          {/* --- Modal：新增/編輯交易 (不變的極簡基金邏輯) --- */}
           {isTradeModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-[#2C3E50]/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
               <div className="bg-white w-full max-w-xl rounded-[2rem] overflow-hidden flex flex-col max-h-[90vh] shadow-2xl">
-                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
-                  <h3 className="font-extrabold text-lg text-slate-800">{editingTradeId ? '✏️ 編輯交易日誌' : '📝 新增交易日誌'}</h3>
-                  <button onClick={() => setIsTradeModalOpen(false)} className="bg-slate-100 hover:bg-slate-200 text-slate-500 w-8 h-8 rounded-full font-bold flex items-center justify-center">✕</button>
+                <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white">
+                  <h3 className="font-extrabold text-lg text-[#2C3E50]">{editingTradeId ? '✏️ 編輯交易日誌' : '📝 新增交易日誌'}</h3>
+                  <button onClick={() => setIsTradeModalOpen(false)} className="bg-slate-100 hover:bg-slate-200 text-[#7F8C8D] w-8 h-8 rounded-full font-bold flex items-center justify-center transition-colors">✕</button>
                 </div>
                 
                 <form onSubmit={handleTradeSubmit} className="p-6 space-y-5 overflow-y-auto bg-slate-50/50">
-                  {/* 切換股票/基金模式 */}
                   <div className="flex bg-slate-200/60 p-1.5 rounded-xl">
-                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer transition-all ${!tradeForm.isFundMode ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer transition-all ${!tradeForm.isFundMode ? 'bg-white shadow-sm text-[#2C3E50]' : 'text-[#7F8C8D]'}`}>
                       <input type="radio" checked={!tradeForm.isFundMode} onChange={()=>setTradeForm({...tradeForm, isFundMode: false, assetType: 'TW_STOCK', type: 'buy', price:'', shares:'', amount:'', netAmount:''})} className="hidden"/> 📈 股票 / ETF
                     </label>
-                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer transition-all ${tradeForm.isFundMode ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer transition-all ${tradeForm.isFundMode ? 'bg-white shadow-sm text-[#2C3E50]' : 'text-[#7F8C8D]'}`}>
                       <input type="radio" checked={tradeForm.isFundMode} onChange={()=>setTradeForm({...tradeForm, isFundMode: true, assetType: 'FUND', type: 'buy', price:'', shares:'', amount:'', netAmount:''})} className="hidden"/> 🏦 共同基金
                     </label>
                   </div>
@@ -551,11 +682,11 @@
                   <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                     <div className="flex gap-2">
                        {!tradeForm.isFundMode && (
-                         <select value={tradeForm.assetType} name="assetType" onChange={handleTradeChange} className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-700">
+                         <select value={tradeForm.assetType} name="assetType" onChange={handleTradeChange} className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-[#2C3E50]">
                            <option value="TW_STOCK">台股</option><option value="US_STOCK">美股</option><option value="TW_ETF">ETF</option>
                          </select>
                        )}
-                       <select value={tradeForm.type} name="type" onChange={handleTradeChange} className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-700">
+                       <select value={tradeForm.type} name="type" onChange={handleTradeChange} className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-[#2C3E50]">
                          <option value="buy">{tradeForm.isFundMode?'申購 (買進)':'買進'}</option>
                          <option value="sell">{tradeForm.isFundMode?'贖回 (賣出)':'賣出'}</option>
                          {tradeForm.isFundMode && <option value="dividend_reinvest">配息滾入 (加單位)</option>}
@@ -565,128 +696,120 @@
                     <div className="grid grid-cols-2 gap-4">
                       {tradeForm.isFundMode ? (
                         <div className="col-span-2">
-                          <label className="block text-[11px] font-bold text-slate-500 mb-1">基金名稱</label>
-                          <input required type="text" name="name" placeholder="如: 安聯台灣大壩" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold"/>
+                          <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">基金名稱</label>
+                          <input required type="text" name="name" placeholder="如: 安聯台灣大壩" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-[#2C3E50]"/>
                         </div>
                       ) : (
                         <>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">股票代號</label>
-                            <input required type="text" name="symbol" placeholder="如: 2330" value={tradeForm.symbol||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold"/>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票代號</label>
+                            <input required type="text" name="symbol" placeholder="如: 2330" value={tradeForm.symbol||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold text-[#2C3E50]"/>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">股票名稱 (自動帶入)</label>
-                            <input type="text" name="name" placeholder="如: 台積電" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"/>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (自動帶入)</label>
+                            <input type="text" name="name" placeholder="如: 台積電" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/>
                           </div>
                         </>
                       )}
                       
                       <div className="col-span-2">
-                        <label className="block text-[11px] font-bold text-slate-500 mb-1">交易日期</label>
-                        <input required type="date" name="date" value={tradeForm.date||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
+                        <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">交易日期</label>
+                        <input required type="date" name="date" value={tradeForm.date||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/>
                       </div>
 
-                      {/* --- 股票 vs 基金 的輸入邏輯分流 --- */}
                       {tradeForm.isFundMode ? (
                         <>
                           <div className="col-span-2">
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">投入/贖回總資金 (TWD)</label>
-                            <input required type="number" step="1" name="amount" placeholder="例如: 10000" value={tradeForm.amount||''} onChange={handleTradeChange} className="w-full p-3 bg-white border border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-xl outline-none font-mono text-lg font-bold text-blue-700 shadow-inner"/>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">投入/贖回總資金 (TWD)</label>
+                            <input required type="number" step="1" name="amount" placeholder="例如: 10000" value={tradeForm.amount||''} onChange={handleTradeChange} className="w-full p-3 bg-white border border-blue-300 focus:border-[#3B82F6] focus:ring-1 focus:ring-[#3B82F6] rounded-xl outline-none font-mono text-lg font-bold text-blue-600 shadow-inner"/>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">當日淨值 (用以換算單位)</label>
-                            <input required type="number" step="0.0001" name="price" placeholder="0.0000" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">當日淨值</label>
+                            <input required type="number" step="0.0001" name="price" placeholder="0.0000" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">獲得單位數 (系統試算)</label>
-                            <input readOnly type="text" name="shares" value={tradeForm.shares||'0.0000'} className="w-full p-3 bg-slate-100 border border-transparent rounded-xl outline-none font-mono text-slate-500 font-bold"/>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">獲得單位數 (系統推算)</label>
+                            <input readOnly type="text" name="shares" value={tradeForm.shares||'0.0000'} className="w-full p-3 bg-slate-100 border border-transparent rounded-xl outline-none font-mono text-[#7F8C8D] font-bold"/>
                           </div>
                         </>
                       ) : (
                         <>
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">成交單價</label>
-                            <input required type="number" step="0.0001" name="price" placeholder="0.00" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-500 mb-1">成交股數</label>
-                            <input required type="number" step="0.0001" name="shares" placeholder="0" value={tradeForm.shares||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
-                          </div>
+                          <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">成交單價</label><input required type="number" step="0.0001" name="price" placeholder="0.00" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/></div>
+                          <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">成交股數</label><input required type="number" step="0.0001" name="shares" placeholder="0" value={tradeForm.shares||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/></div>
                           {tradeForm.type !== 'dividend_reinvest' && (
                             <>
-                              <div><label className="block text-[11px] font-bold text-slate-500 mb-1">手續費</label><input type="number" step="1" name="fee" value={tradeForm.fee||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"/></div>
-                              <div><label className="block text-[11px] font-bold text-slate-500 mb-1">交易稅</label><input type="number" step="1" name="tax" value={tradeForm.tax||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"/></div>
+                              <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">手續費</label><input type="number" step="1" name="fee" value={tradeForm.fee||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/></div>
+                              <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">交易稅</label><input type="number" step="1" name="tax" value={tradeForm.tax||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/></div>
                             </>
                           )}
-                          <div className="col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-xl flex justify-between items-center mt-2">
-                            <span className="text-sm font-bold text-blue-800">帳戶淨收付金額 (試算)</span>
-                            <span className="font-extrabold text-lg text-blue-900">${fmtM(tradeForm.netAmount)}</span>
+                          <div className="col-span-2 bg-blue-50/50 border border-blue-100 p-3 rounded-xl flex justify-between items-center mt-2">
+                            <span className="text-sm font-bold text-blue-700">帳戶淨收付金額 (試算)</span>
+                            <span className="font-extrabold text-lg text-blue-800">${fmtM(tradeForm.netAmount)}</span>
                           </div>
                         </>
                       )}
                     </div>
                   </div>
 
-                  {/* 心理覆盤區 (Smart Journal) */}
                   <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                    <h4 className="font-bold text-slate-800 text-sm">🧠 交易覆盤筆記</h4>
+                    <h4 className="font-bold text-[#2C3E50] text-sm">🧠 交易覆盤筆記</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-500 mb-1">策略歸屬</label>
-                        <select name="strategy" value={tradeForm.strategy||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-700">
+                        <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">策略歸屬</label>
+                        <select name="strategy" value={tradeForm.strategy||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-[#2C3E50]">
                           {STRATEGY_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                       </div>
                       {tradeForm.type === 'buy' && (
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-500 mb-1">進場理由</label>
-                          <select name="reason" value={tradeForm.reason||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm text-slate-700">
+                          <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">進場理由</label>
+                          <select name="reason" value={tradeForm.reason||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm text-[#2C3E50]">
                             <option value="">選擇主要理由...</option>{BUY_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
                         </div>
                       )}
                       {tradeForm.type === 'buy' && (
                          <div className="col-span-2">
-                           <label className="block text-[11px] font-bold text-slate-500 mb-1">交易信心度: {tradeForm.confidence||3} 星</label>
-                           <input type="range" name="confidence" min="1" max="5" value={tradeForm.confidence||3} onChange={handleTradeChange} className="w-full accent-blue-600" />
+                           <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">交易信心度: {tradeForm.confidence||3} 星</label>
+                           <input type="range" name="confidence" min="1" max="5" value={tradeForm.confidence||3} onChange={handleTradeChange} className="w-full accent-[#3B82F6]" />
                          </div>
                       )}
                       <div className="col-span-2">
-                        <textarea name="notes" placeholder="寫下當時的情緒或備註..." value={tradeForm.notes||''} onChange={handleTradeChange} rows="2" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none text-sm"></textarea>
+                        <textarea name="notes" placeholder="寫下當時的情緒或備註..." value={tradeForm.notes||''} onChange={handleTradeChange} rows="2" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none text-sm text-[#2C3E50]"></textarea>
                       </div>
                     </div>
                   </div>
 
-                  <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg mt-2">
-                    💾 儲存交易
+                  <button type="submit" className="w-full bg-[#2C3E50] hover:bg-black text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg mt-2">
+                    💾 儲存紀錄
                   </button>
                 </form>
               </div>
             </div>
           )}
 
-          {/* --- Modal：資金出入金 (Cash Flow) --- */}
+          {/* --- Modal：資金出入金 --- */}
           {isCashModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-[#2C3E50]/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
               <div className="bg-white w-full max-w-sm rounded-[2rem] overflow-hidden flex flex-col shadow-2xl">
                 <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-                  <h3 className="font-extrabold text-lg text-slate-800">💰 資金流水帳</h3>
-                  <button onClick={() => setIsCashModalOpen(false)} className="bg-slate-100 text-slate-500 w-8 h-8 rounded-full font-bold">✕</button>
+                  <h3 className="font-extrabold text-lg text-[#2C3E50]">💰 資金流水帳</h3>
+                  <button onClick={() => setIsCashModalOpen(false)} className="bg-slate-100 text-[#7F8C8D] hover:bg-slate-200 w-8 h-8 rounded-full font-bold flex items-center justify-center transition-colors">✕</button>
                 </div>
                 <form onSubmit={async(e)=>{
                   e.preventDefault();
                   await db.collection('users').doc(user.uid).collection('cashFlows').add({...cashForm, amount: parseFloat(cashForm.amount)||0});
                   setIsCashModalOpen(false);
-                }} className="p-6 space-y-5 bg-slate-50">
+                }} className="p-6 space-y-5 bg-slate-50/50">
                   <div className="flex bg-slate-200/60 p-1.5 rounded-xl">
-                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='deposit'?'bg-white shadow text-blue-600':'text-slate-500'}`}><input type="radio" checked={cashForm.type==='deposit'} onChange={()=>setCashForm({...cashForm, type:'deposit'})} className="hidden"/>入金</label>
-                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='withdraw'?'bg-white shadow text-slate-900':'text-slate-500'}`}><input type="radio" checked={cashForm.type==='withdraw'} onChange={()=>setCashForm({...cashForm, type:'withdraw'})} className="hidden"/>出金</label>
-                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='dividend'?'bg-white shadow text-emerald-600':'text-slate-500'}`}><input type="radio" checked={cashForm.type==='dividend'} onChange={()=>setCashForm({...cashForm, type:'dividend'})} className="hidden"/>領股息</label>
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='deposit'?'bg-white shadow-sm text-blue-600':'text-[#7F8C8D]'}`}><input type="radio" checked={cashForm.type==='deposit'} onChange={()=>setCashForm({...cashForm, type:'deposit'})} className="hidden"/>入金</label>
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='withdraw'?'bg-white shadow-sm text-[#2C3E50]':'text-[#7F8C8D]'}`}><input type="radio" checked={cashForm.type==='withdraw'} onChange={()=>setCashForm({...cashForm, type:'withdraw'})} className="hidden"/>出金</label>
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='dividend'?'bg-white shadow-sm text-emerald-600':'text-[#7F8C8D]'}`}><input type="radio" checked={cashForm.type==='dividend'} onChange={()=>setCashForm({...cashForm, type:'dividend'})} className="hidden"/>領股息</label>
                   </div>
-                  <input required type="date" value={cashForm.date||''} onChange={e=>setCashForm({...cashForm, date: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-mono"/>
-                  <input required type="number" step="1" placeholder="金額 (TWD)" value={cashForm.amount||''} onChange={e=>setCashForm({...cashForm, amount: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-mono text-2xl font-bold text-blue-600"/>
-                  <input type="text" placeholder="備註 (如: 0050配息)" value={cashForm.notes||''} onChange={e=>setCashForm({...cashForm, notes: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-sm"/>
-                  <button type="submit" className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg mt-2 text-lg">新增紀錄</button>
+                  <input required type="date" value={cashForm.date||''} onChange={e=>setCashForm({...cashForm, date: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/>
+                  <input required type="number" step="1" placeholder="金額 (TWD)" value={cashForm.amount||''} onChange={e=>setCashForm({...cashForm, amount: e.target.value})} className="w-full p-3 bg-white border border-blue-300 rounded-xl outline-none font-mono text-2xl font-bold text-blue-600 focus:ring-1 focus:ring-blue-500 shadow-inner"/>
+                  <input type="text" placeholder="備註 (如: 0050配息)" value={cashForm.notes||''} onChange={e=>setCashForm({...cashForm, notes: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-sm text-[#2C3E50]"/>
+                  <button type="submit" className="w-full bg-[#2C3E50] text-white font-bold py-4 rounded-xl shadow-lg mt-2 text-lg hover:bg-black transition-colors">新增資金紀錄</button>
                 </form>
               </div>
             </div>
