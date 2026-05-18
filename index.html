@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>專業資產帳務系統</title>
+  <title>專業個人資產管理系統</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -25,43 +25,36 @@
 
   <style>
     :root {
-      --bg-color: #F4F5F7;
-      --card-bg: #FFFFFF;
-      --text-main: #333333;
-      --text-muted: #8E8E93;
-      --up-color: #E53935; /* 台股紅漲 */
-      --down-color: #4CAF50; /* 台股綠跌 */
-      --primary-teal: #16A085; /* 主題綠 */
+      --bg-color: #f1f5f9;
+      --card-bg: #ffffff;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --up-color: #ef4444; /* 台股紅漲 */
+      --down-color: #10b981; /* 台股綠跌 */
+      --primary-accent: #3b82f6; /* 主題藍 */
     }
-    body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro TC", "PingFang TC", "Microsoft JhengHei", sans-serif; background-color: var(--bg-color); color: var(--text-main); -webkit-font-smoothing: antialiased; padding-bottom: 80px; }
+    body { font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", sans-serif; background-color: var(--bg-color); color: var(--text-main); -webkit-font-smoothing: antialiased; }
     
     /* 隱藏捲軸但保持可滑動 */
     ::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     
-    .broker-card { background: var(--card-bg); border-radius: 16px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04); padding: 20px; margin-bottom: 16px; }
+    .bento-card { background: var(--card-bg); border-radius: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02); border: 1px solid #e2e8f0; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+    .bento-card:hover { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.02); }
     
-    /* 頂部頁籤樣式 */
-    .top-tab { color: var(--text-muted); font-weight: 500; font-size: 16px; padding: 8px 12px; position: relative; white-space: nowrap; transition: color 0.2s; }
-    .top-tab.active { color: var(--primary-teal); font-weight: 600; }
-    .top-tab.active::after { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 6px; height: 6px; border-radius: 50%; background-color: var(--primary-teal); }
+    .glass-modal { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2); }
 
-    /* 圓環圖表色系 */
-    .color-1 { background-color: #3498DB; }
-    .color-2 { background-color: #5DADE2; }
-    .color-3 { background-color: #1ABC9C; }
-    .color-4 { background-color: #48C9B0; }
-    .color-5 { background-color: #9B59B6; }
-    .color-6 { background-color: #E67E22; }
+    .nav-btn { transition: all 0.2s; border-radius: 12px; }
+    .nav-btn.active { background-color: var(--text-main); color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
   </style>
 </head>
-<body>
+<body class="pb-20 md:pb-8">
   <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
 
-    // --- 1. Firebase 初始化 ---
+    // --- Firebase 初始化 ---
     const firebaseConfig = {
       apiKey: "AIzaSyBrLbe2Qx_k-icTv61SQNBw7n4hIcYBCiE",
       authDomain: "my-stock-tracker-f3065.firebaseapp.com",
@@ -70,16 +63,27 @@
       messagingSenderId: "802802972309",
       appId: "1:802802972309:web:70c2eadc6b040689834d9c"
     };
-
     if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
     const auth = firebase.auth();
     const db = firebase.firestore();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
 
+    // --- 輔助資料 ---
+    const STOCK_DICTIONARY = {
+      '2330': { name: '台積電', category: 'TW_STOCK' }, '2317': { name: '鴻海', category: 'TW_STOCK' },
+      '2454': { name: '聯發科', category: 'TW_STOCK' }, '2308': { name: '台達電', category: 'TW_STOCK' },
+      '0050': { name: '元大台灣50', category: 'TW_ETF' }, '00878': { name: '國泰永續高股息', category: 'TW_ETF' },
+      '006208': { name: '富邦台50', category: 'TW_ETF' }, 'AAPL': { name: 'Apple', category: 'US_STOCK' }, 
+      'NVDA': { name: 'NVIDIA', category: 'US_STOCK' }, 'QQQ': { name: 'Invesco QQQ', category: 'US_STOCK' },
+      'VOO': { name: 'Vanguard S&P 500', category: 'US_STOCK' }
+    };
+    const BUY_REASONS = ['技術面突破', '基本面財報', '籌碼面優勢', '攤平/向下建倉', '定期定額', '情緒衝動/FOMO'];
+    const STRATEGY_TAGS = ['長線存股', '波段操作', '短線當沖', '實驗策略'];
+    const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1'];
+
     // 格式化工具 (台灣標準：紅漲綠跌)
-    const fmtM = (num) => Number(num || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    const getColorClass = (num) => num > 0 ? 'text-[#E53935]' : num < 0 ? 'text-[#4CAF50]' : 'text-gray-500';
-    const CHART_COLORS = ['#3498DB', '#5DADE2', '#1ABC9C', '#48C9B0', '#9B59B6', '#E67E22', '#F1C40F', '#E74C3C'];
+    const fmtM = (num) => Number(num || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    const getColorClass = (num) => num > 0 ? 'text-[#ef4444]' : num < 0 ? 'text-[#10b981]' : 'text-slate-500';
 
     // --- 主元件 ---
     function App() {
@@ -88,14 +92,19 @@
       const [cashFlows, setCashFlows] = useState([]);
       const [marketPrices, setMarketPrices] = useState({});
       const [loading, setLoading] = useState(true);
-      const [isFetchingPrices, setIsFetchingPrices] = useState(false);
       
-      // 導航狀態
-      const [bottomNav, setBottomNav] = useState('account'); // account, history, add, cash
-      const [dashTab, setDashTab] = useState('ALL'); // ALL, TW_STOCK, US_STOCK, TW_ETF, FUND
+      const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, history
+      
+      // 表單與 Modal 狀態
+      const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
+      const [editingTradeId, setEditingTradeId] = useState(null);
+      const [tradeForm, setTradeForm] = useState({});
+      
+      const [isCashModalOpen, setIsCashModalOpen] = useState(false);
+      const [cashForm, setCashForm] = useState({});
 
-      const [isModalOpen, setIsModalOpen] = useState(false);
-      const [formData, setFormData] = useState({});
+      // 個股詳細分析 Modal
+      const [selectedAsset, setSelectedAsset] = useState(null);
 
       // --- 資料抓取 ---
       useEffect(() => {
@@ -111,7 +120,7 @@
         setLoading(true);
         const unsubTx = db.collection('users').doc(user.uid).collection('transactions').onSnapshot((snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          data.sort((a, b) => new Date(a.date) - new Date(b.date));
+          data.sort((a, b) => new Date(a.date) - new Date(b.date)); // 必須舊到新算成本
           setTransactions(data);
         });
         const unsubCash = db.collection('users').doc(user.uid).collection('cashFlows').onSnapshot((snapshot) => {
@@ -125,58 +134,22 @@
         return () => { unsubTx(); unsubCash(); unsubPrice(); };
       }, [user]);
 
-      // --- 自動化更新股價 API (Yahoo Finance via AllOrigins) ---
-      const fetchLivePrices = async () => {
-        if (!user || portfolio.holdings.length === 0) return;
-        setIsFetchingPrices(true);
-        let updatedPrices = { ...marketPrices };
-        
-        for (let h of portfolio.holdings) {
-          let yfSymbol = h.symbol;
-          // 台股加上 .TW
-          if ((h.category === 'TW_STOCK' || h.category === 'TW_ETF') && /^\d{4,6}$/.test(yfSymbol)) {
-            yfSymbol += '.TW';
-          }
-          try {
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1d`;
-            const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-            const res = await fetch(proxy);
-            const data = await res.json();
-            const parsed = JSON.parse(data.contents);
-            const price = parsed.chart.result[0].meta.regularMarketPrice;
-            if (price) updatedPrices[h.symbol] = price;
-          } catch (e) {
-            console.log(`Failed to fetch ${yfSymbol}`);
-          }
-        }
-        await db.collection('users').doc(user.uid).collection('settings').doc('marketPrices').set(updatedPrices, { merge: true });
-        setIsFetchingPrices(false);
-        alert("今日行情已更新完畢！");
-      };
-
-      // --- 核心財務引擎 ---
+      // --- 核心財務引擎 (三水桶 + 精準歷史損益) ---
       const portfolio = useMemo(() => {
         let holdings = {};
-        let sys = { totalDeposits: 0, totalWithdrawals: 0, availableCash: 0 };
+        let sys = { totalDeposits: 0, totalWithdrawals: 0, availableCash: 0, totalRealized: 0, totalUnrealized: 0, totalMarketValue: 0 };
         
-        let categories = {
-          TW_STOCK: { marketValue: 0, cost: 0, unrealized: 0, items: [], label: '台股' },
-          US_STOCK: { marketValue: 0, cost: 0, unrealized: 0, items: [], label: '海外股' },
-          TW_ETF: { marketValue: 0, cost: 0, unrealized: 0, items: [], label: 'ETF' },
-          FUND: { marketValue: 0, cost: 0, unrealized: 0, items: [], label: '基金' },
-        };
-
         cashFlows.forEach(cf => {
           const amt = parseFloat(cf.amount) || 0;
           if (cf.type === 'deposit') { sys.totalDeposits += amt; sys.availableCash += amt; }
           else if (cf.type === 'withdraw') { sys.totalWithdrawals += amt; sys.availableCash -= amt; }
-          else if (cf.type === 'dividend') { sys.availableCash += amt; }
+          else if (cf.type === 'dividend') { sys.availableCash += amt; sys.totalRealized += amt; }
         });
+        sys.netPrincipal = sys.totalDeposits - sys.totalWithdrawals;
 
         transactions.forEach(tx => {
-          let cat = tx.category || 'TW_STOCK';
           let sym = tx.symbol || tx.name;
-          if (!holdings[sym]) holdings[sym] = { symbol: sym, name: tx.name, category: cat, qty: 0, totalCost: 0, avgCost: 0, buyQueue: [] };
+          if (!holdings[sym]) { holdings[sym] = { symbol: sym, name: tx.name, assetType: tx.assetType, qty: 0, totalCost: 0, avgCost: 0, realizedProfit: 0, buyQueue: [] }; }
           let h = holdings[sym];
           let qty = parseFloat(tx.shares) || 0;
           let netAmount = parseFloat(tx.netAmount) || 0;
@@ -195,307 +168,282 @@
               if (b.qty <= remainingToSell) { realizedCost += b.netAmount; remainingToSell -= b.qty; h.buyQueue.shift(); } 
               else { realizedCost += (b.netAmount / b.qty) * remainingToSell; b.qty -= remainingToSell; b.netAmount -= (b.netAmount / (b.qty + remainingToSell)) * remainingToSell; remainingToSell = 0; }
             }
-            sys.availableCash += netAmount;
+            let profit = netAmount - realizedCost;
+            h.realizedProfit += profit; sys.totalRealized += profit; sys.availableCash += netAmount;
             h.qty -= qty; h.totalCost -= realizedCost;
             if (h.qty <= 0.0001) { h.qty = 0; h.totalCost = 0; h.avgCost = 0; h.buyQueue = []; }
           }
         });
 
-        const activeHoldings = Object.values(holdings).filter(h => h.qty > 0);
-        let totalMarketValue = 0; let totalCost = 0; let totalUnrealized = 0;
-
+        const activeHoldings = Object.values(holdings).filter(h => h.qty > 0 || h.realizedProfit !== 0); // 保留曾獲利的標的供分析
+        
         activeHoldings.forEach(h => {
-          let currentPrice = marketPrices[h.symbol] || h.avgCost;
-          let marketValue = h.qty * currentPrice;
-          let unrealized = marketValue - h.totalCost;
-          
-          h.currentPrice = currentPrice; h.marketValue = marketValue; h.unrealized = unrealized;
-          h.roi = h.totalCost > 0 ? (unrealized / h.totalCost) * 100 : 0;
-
-          totalMarketValue += marketValue;
-          totalCost += h.totalCost;
-          totalUnrealized += unrealized;
-
-          if(categories[h.category]) {
-            categories[h.category].marketValue += marketValue;
-            categories[h.category].cost += h.totalCost;
-            categories[h.category].unrealized += unrealized;
-            categories[h.category].items.push(h);
+          if (h.qty > 0) {
+            let currentPrice = marketPrices[h.symbol] || h.avgCost;
+            let marketValue = h.qty * currentPrice;
+            let unrealized = marketValue - h.totalCost;
+            
+            h.currentPrice = currentPrice; h.marketValue = marketValue; h.unrealized = unrealized;
+            h.roi = h.totalCost > 0 ? (unrealized / h.totalCost) * 100 : 0;
+            sys.totalMarketValue += marketValue; sys.totalUnrealized += unrealized;
+          } else {
+            h.currentPrice = 0; h.marketValue = 0; h.unrealized = 0; h.roi = 0;
           }
         });
 
-        sys.totalMarketValue = totalMarketValue;
-        sys.totalCost = totalCost;
-        sys.totalUnrealized = totalUnrealized;
-        sys.totalROI = totalCost > 0 ? (totalUnrealized / totalCost) * 100 : 0;
+        sys.totalAssets = sys.availableCash + sys.totalMarketValue;
+        sys.totalPnl = sys.totalRealized + sys.totalUnrealized;
         
-        // 分類排序 (佔比大到小)
-        Object.keys(categories).forEach(k => {
-          categories[k].items.sort((a,b) => b.marketValue - a.marketValue);
-        });
+        // 分類並按市值排序
+        const currentHoldings = activeHoldings.filter(h => h.qty > 0).sort((a,b)=>b.marketValue - a.marketValue);
 
-        return { holdings: activeHoldings, sys, categories };
+        return { holdings: currentHoldings, allAssets: activeHoldings, sys };
       }, [transactions, cashFlows, marketPrices]);
 
 
-      // --- 圖表元件 ---
-      const DonutChart = ({ items, totalValue }) => {
-        const canvasRef = useRef(null);
-        const chartInstance = useRef(null);
-        useEffect(() => {
-          if (!canvasRef.current || items.length === 0) return;
-          if (chartInstance.current) chartInstance.current.destroy();
-          
-          // 若超過5個，剩下的歸類為其他
-          let sorted = [...items].sort((a,b)=>b.marketValue - a.marketValue);
-          let topItems = sorted.slice(0, 4);
-          let otherValue = sorted.slice(4).reduce((sum, item) => sum + item.marketValue, 0);
-          
-          let labels = topItems.map(i => i.name || i.symbol);
-          let data = topItems.map(i => i.marketValue);
-          if (otherValue > 0) { labels.push('其他'); data.push(otherValue); }
-
-          const ctx = canvasRef.current.getContext('2d');
-          chartInstance.current = new Chart(ctx, {
-            type: 'doughnut',
-            data: { labels: labels, datasets: [{ data: data, backgroundColor: CHART_COLORS, borderWidth: 0 }] },
-            options: { cutout: '75%', plugins: { legend: { display: false }, tooltip: { enabled: false } }, animation: { duration: 0 } }
-          });
-          return () => chartInstance.current?.destroy();
-        }, [items]);
-        
-        if(items.length === 0) return <div className="w-32 h-32 rounded-full border-8 border-gray-100 mx-auto"></div>;
-
-        return (
-          <div className="relative w-32 h-32 mx-auto flex-shrink-0">
-            <canvas ref={canvasRef}></canvas>
-            {/* 圖表中心文字 */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-[10px] text-gray-400 font-bold mb-0.5">TWD</span>
-              <span className="text-lg font-bold text-gray-800 leading-none">{fmtM(totalValue)}</span>
-              <span className={`text-[10px] font-bold mt-1 ${getColorClass(portfolio.sys.totalUnrealized)}`}>
-                {portfolio.sys.totalUnrealized > 0 ? '+' : ''}{totalValue > 0 ? ((portfolio.sys.totalUnrealized/totalValue)*100).toFixed(2) : '0.00'}%
-              </span>
-            </div>
-          </div>
-        );
+      // --- 表單與操作 ---
+      const handleLogin = async () => { try { await auth.signInWithPopup(googleProvider); } catch (e) { alert("登入失敗"); } };
+      
+      const openTradeModal = (tx = null) => {
+        if (tx) {
+          setEditingTradeId(tx.id);
+          setTradeForm({...tx, isFundMode: tx.assetType === 'FUND'});
+        } else {
+          setEditingTradeId(null);
+          setTradeForm({ date: new Date().toISOString().split('T')[0], isFundMode: false, assetType: 'TW_STOCK', type: 'buy', symbol: '', name: '', price: '', shares: '', amount: '', fee: '0', tax: '0', strategy: '波段操作', confidence: '3', reason: '' });
+        }
+        setIsTradeModalOpen(true);
       };
 
+      const handleTradeChange = (e) => {
+        const { name, value } = e.target;
+        let newData = { ...tradeForm, [name]: value };
+        
+        // 自動帶入股票名稱
+        if (name === 'symbol' && !newData.isFundMode && STOCK_DICTIONARY[value.toUpperCase()]) {
+          newData.name = STOCK_DICTIONARY[value.toUpperCase()].name;
+          newData.assetType = STOCK_DICTIONARY[value.toUpperCase()].category;
+        }
+
+        // --- 核心邏輯切換：股票 vs 基金 ---
+        if (newData.isFundMode) {
+          // 基金模式：輸入「總金額(amount)」與「淨值(price)」，自動推算「單位數(shares)」
+          const amount = parseFloat(newData.amount) || 0;
+          const price = parseFloat(newData.price) || 0;
+          if (amount > 0 && price > 0) {
+            newData.shares = (amount / price).toFixed(5);
+            newData.netAmount = amount.toFixed(2); // 基金直接以總金額為淨額
+          } else { newData.shares = ''; newData.netAmount = ''; }
+        } else {
+          // 股票模式：輸入「價(price)」與「量(shares)」，加上稅費，自動推算「淨額(netAmount)」
+          const price = parseFloat(newData.price) || 0; const shares = parseFloat(newData.shares) || 0;
+          const fee = parseFloat(newData.fee) || 0; const tax = parseFloat(newData.tax) || 0;
+          if (price > 0 && shares > 0) {
+            newData.netAmount = newData.type === 'buy' ? (price * shares + fee + tax).toFixed(2) : (price * shares - fee - tax).toFixed(2);
+          } else { newData.netAmount = ''; }
+        }
+        setTradeForm(newData);
+      };
+
+      const handleTradeSubmit = async (e) => {
+        e.preventDefault();
+        let payload = { 
+          ...tradeForm, symbol: tradeForm.symbol?.toUpperCase() || tradeForm.name, 
+          price: parseFloat(tradeForm.price)||0, shares: parseFloat(tradeForm.shares)||0, 
+          fee: parseFloat(tradeForm.fee)||0, tax: parseFloat(tradeForm.tax)||0, netAmount: parseFloat(tradeForm.netAmount)||0 
+        };
+        if (payload.isFundMode) payload.assetType = 'FUND';
+
+        if (editingTradeId) await db.collection('users').doc(user.uid).collection('transactions').doc(editingTradeId).update(payload);
+        else { payload.createdAt = new Date().toISOString(); await db.collection('users').doc(user.uid).collection('transactions').add(payload); }
+        setIsTradeModalOpen(false);
+      };
+
+      // --- 個股走勢圖元件 ---
+      const StockTrendChart = ({ asset }) => {
+        const canvasRef = useRef(null);
+        const chartInstance = useRef(null);
+        const [chartData, setChartData] = useState(null);
+        const [loadingChart, setLoadingChart] = useState(true);
+
+        useEffect(() => {
+          const fetchHistory = async () => {
+            if (asset.assetType === 'FUND') { setLoadingChart(false); return; } // 國內基金抓不到API
+            try {
+              let yfSymbol = asset.symbol;
+              if (['TW_STOCK', 'TW_ETF'].includes(asset.assetType) && /^\d+$/.test(yfSymbol)) yfSymbol += '.TW';
+              const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1mo`;
+              const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+              const res = await fetch(proxy);
+              const data = await res.json();
+              const parsed = JSON.parse(data.contents);
+              const timestamps = parsed.chart.result[0].timestamp;
+              const closes = parsed.chart.result[0].indicators.quote[0].close;
+              
+              if (timestamps && closes) {
+                const dates = timestamps.map(t => { const d = new Date(t * 1000); return `${d.getMonth()+1}/${d.getDate()}`; });
+                setChartData({ labels: dates, prices: closes });
+              }
+            } catch (e) { console.log('Chart API Error'); }
+            setLoadingChart(false);
+          };
+          fetchHistory();
+        }, [asset.symbol]);
+
+        useEffect(() => {
+          if (!canvasRef.current || !chartData) return;
+          if (chartInstance.current) chartInstance.current.destroy();
+          const ctx = canvasRef.current.getContext('2d');
+          
+          // 決定走勢顏色 (首尾價格比較)
+          const isUp = chartData.prices[chartData.prices.length-1] >= chartData.prices[0];
+          const color = isUp ? '#ef4444' : '#10b981'; // 台灣紅漲綠跌
+
+          chartInstance.current = new Chart(ctx, {
+            type: 'line',
+            data: { labels: chartData.labels, datasets: [{ data: chartData.prices, borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.1 }] },
+            options: { plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } }, responsive: true, maintainAspectRatio: false }
+          });
+          return () => chartInstance.current?.destroy();
+        }, [chartData]);
+
+        if (loadingChart) return <div className="h-32 flex items-center justify-center text-sm text-slate-400">正在抓取近30日走勢...</div>;
+        if (!chartData) return <div className="h-32 flex items-center justify-center text-sm text-slate-400 bg-slate-50 rounded-xl">此標的無法取得歷史走勢，僅供數據參考。</div>;
+        return <div className="h-32 w-full"><canvas ref={canvasRef}></canvas></div>;
+      };
+
+
       // --- 渲染畫面 ---
-      if (loading) return <div className="flex h-screen items-center justify-center text-gray-400 font-bold">系統載入中...</div>;
+      if (loading) return <div className="flex h-screen items-center justify-center bg-slate-50 text-slate-400 font-bold">載入中...</div>;
       if (!user) {
         return (
-          <div className="flex h-screen items-center justify-center bg-white p-6">
-            <div className="w-full max-w-sm text-center">
-              <div className="w-20 h-20 bg-[#16A085] text-white rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg text-4xl">📊</div>
-              <h1 className="text-3xl font-bold mb-2 tracking-tight text-gray-800">資產帳務系統</h1>
-              <p className="text-gray-500 mb-10 font-medium">還原專業券商體驗，精準計算庫存損益</p>
-              <button onClick={() => auth.signInWithPopup(googleProvider)} className="w-full bg-[#16A085] text-white px-6 py-4 rounded-full font-bold shadow-md active:scale-95 transition-transform">Google 帳號登入</button>
+          <div className="flex h-screen items-center justify-center bg-slate-50 p-6">
+            <div className="w-full max-w-sm text-center bento-card p-10">
+              <div className="w-20 h-20 bg-blue-600 text-white rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-blue-200 text-4xl">💼</div>
+              <h1 className="text-3xl font-extrabold mb-2 text-slate-800 tracking-tight">個人資產大台</h1>
+              <p className="text-slate-500 mb-8 font-medium">結構化你的每一筆交易與資金流</p>
+              <button onClick={handleLogin} className="w-full bg-slate-900 text-white px-6 py-4 rounded-xl font-bold shadow-md hover:bg-black transition-all">安全登入系統</button>
             </div>
           </div>
         );
       }
 
-      // 決定當前顯示的資料分類
-      const renderData = dashTab === 'ALL' 
-        ? { marketValue: portfolio.sys.totalMarketValue, cost: portfolio.sys.totalCost, unrealized: portfolio.sys.totalUnrealized, items: portfolio.holdings }
-        : portfolio.categories[dashTab];
-
       return (
-        <div className="min-h-screen pb-20">
+        <div className="min-h-screen max-w-3xl mx-auto md:pt-6">
           
-          {/* 頂部功能與頁籤 (僅在帳務總覽顯示) */}
-          {bottomNav === 'account' && (
-            <div className="bg-white sticky top-0 z-10 shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
-              <div className="flex justify-center items-center py-4 relative">
-                <h1 className="text-lg font-bold text-gray-800">帳務</h1>
-                <button onClick={fetchLivePrices} disabled={isFetchingPrices} className="absolute right-4 text-[#16A085] p-2 bg-[#16A085]/10 rounded-full text-xs font-bold flex items-center gap-1">
-                  {isFetchingPrices ? '更新中...' : '↻ 更新淨值'}
-                </button>
-              </div>
-              <div className="flex overflow-x-auto no-scrollbar px-4 border-b border-gray-100">
-                <button onClick={()=>setDashTab('ALL')} className={`top-tab ${dashTab==='ALL'?'active':''}`}>總覽</button>
-                <button onClick={()=>setDashTab('TW_STOCK')} className={`top-tab ${dashTab==='TW_STOCK'?'active':''}`}>台股</button>
-                <button onClick={()=>setDashTab('US_STOCK')} className={`top-tab ${dashTab==='US_STOCK'?'active':''}`}>海外股票</button>
-                <button onClick={()=>setDashTab('TW_ETF')} className={`top-tab ${dashTab==='TW_ETF'?'active':''}`}>ETF</button>
-                <button onClick={()=>setDashTab('FUND')} className={`top-tab ${dashTab==='FUND'?'active':''}`}>基金</button>
-              </div>
+          {/* 頂部導航列 (Desktop / Mobile) */}
+          <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-20 md:rounded-2xl md:mb-6 border-b md:border border-slate-200 shadow-sm px-4 py-3 flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">💼</span>
+              <h1 className="font-extrabold text-xl text-slate-800 tracking-tight hidden sm:block">Asset<span className="text-blue-600">Track</span></h1>
             </div>
-          )}
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              <button onClick={()=>setActiveTab('dashboard')} className={`nav-btn px-4 py-2 text-sm font-bold ${activeTab==='dashboard'?'active':'text-slate-500'}`}>📊 總覽</button>
+              <button onClick={()=>setActiveTab('history')} className={`nav-btn px-4 py-2 text-sm font-bold ${activeTab==='history'?'active':'text-slate-500'}`}>📝 日誌明細</button>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="hidden md:block bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50">💰 資金池</button>
+              <button onClick={()=>auth.signOut()} className="bg-slate-100 text-slate-500 w-10 h-10 rounded-xl flex items-center justify-center font-bold hover:bg-slate-200">登出</button>
+            </div>
+          </nav>
 
-          <main className="p-4 max-w-lg mx-auto">
-            {/* 視圖：帳務總覽 (Dashboard) */}
-            {bottomNav === 'account' && (
+          <main className="p-4 space-y-6">
+            
+            {/* 視圖：帳務總覽 */}
+            {activeTab === 'dashboard' && (
               <>
-                {/* 總覽專屬：水位進度條卡片 */}
-                {dashTab === 'ALL' && (
-                  <div className="broker-card">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-gray-500 font-medium">庫存總現值 (TWD) <span className="text-xs ml-1 border border-gray-300 rounded-full px-1.5 py-0.5">👁</span></span>
-                      <span className="text-[10px] text-gray-400">依昨收匯率計算</span>
-                    </div>
-                    <div className="flex items-baseline gap-2 mb-4">
-                      <h2 className="text-3xl font-extrabold text-gray-900">{fmtM(portfolio.sys.totalMarketValue)}</h2>
-                      <span className={`font-bold ${getColorClass(portfolio.sys.totalROI)}`}>
-                        ({portfolio.sys.totalROI > 0 ? '+' : ''}{portfolio.sys.totalROI.toFixed(2)}%)
-                      </span>
-                    </div>
-                    
-                    <div className="flex justify-between items-end mb-3">
-                      <div>
-                        <p className="text-xs text-gray-500 mb-0.5">總成本</p>
-                        <p className="font-bold text-gray-800 text-lg">{fmtM(portfolio.sys.totalCost)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500 mb-0.5 flex items-center gap-1 justify-end">不含息參考報酬 <span className="w-3 h-3 border border-gray-300 rounded-full text-[8px] flex items-center justify-center">i</span></p>
-                        <p className={`font-bold text-lg ${getColorClass(portfolio.sys.totalUnrealized)}`}>
-                          {portfolio.sys.totalUnrealized > 0 ? '+' : ''}{fmtM(portfolio.sys.totalUnrealized)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* 資產分布進度條 */}
-                    <div className="w-full h-3 rounded-full flex overflow-hidden mb-3">
-                      {Object.entries(portfolio.categories).map(([k, v], i) => {
-                        if (v.marketValue === 0) return null;
-                        const pct = (v.marketValue / portfolio.sys.totalMarketValue) * 100;
-                        return <div key={k} style={{width: `${pct}%`, backgroundColor: CHART_COLORS[i]}}></div>;
-                      })}
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-gray-600">
-                      {Object.entries(portfolio.categories).map(([k, v], i) => {
-                        if (v.marketValue === 0) return null;
-                        return <div key={k} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm" style={{backgroundColor: CHART_COLORS[i]}}></span> {v.label} {((v.marketValue/portfolio.sys.totalMarketValue)*100).toFixed(2)}%</div>
-                      })}
-                      <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-100"></span> 現金 {fmtM(portfolio.sys.availableCash)}</div>
+                {/* 三水桶核心看板 */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div className="bento-card p-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white col-span-2 sm:col-span-1 shadow-lg shadow-slate-900/20">
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">目前總資產</p>
+                    <h2 className="text-3xl font-extrabold tracking-tight">${fmtM(portfolio.sys.totalAssets)}</h2>
+                    <div className="mt-4 border-t border-white/10 pt-3">
+                      <p className="text-[10px] text-slate-400 mb-0.5">可用購買力 (現金)</p>
+                      <p className="font-bold text-blue-300 text-lg">${fmtM(portfolio.sys.availableCash)}</p>
                     </div>
                   </div>
-                )}
+                  <div className="bento-card p-5 relative overflow-hidden bg-blue-50/50 border-blue-100">
+                    <p className="text-xs text-blue-600 font-bold uppercase tracking-wider mb-1">淨投入本金</p>
+                    <h3 className="text-2xl font-extrabold tracking-tight text-slate-800">${fmtM(portfolio.sys.netPrincipal)}</h3>
+                  </div>
+                  <div className={`bento-card p-5 relative overflow-hidden ${portfolio.sys.totalPnl >= 0 ? 'bg-red-50/50 border-red-100' : 'bg-emerald-50/50 border-emerald-100'}`}>
+                    <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${portfolio.sys.totalPnl >= 0 ? 'text-red-500' : 'text-emerald-500'}`}>生涯總損益</p>
+                    <h3 className={`text-2xl font-extrabold tracking-tight ${getColorClass(portfolio.sys.totalPnl)}`}>
+                      {portfolio.sys.totalPnl > 0 ? '+' : ''}${fmtM(portfolio.sys.totalPnl)}
+                    </h3>
+                  </div>
+                </div>
 
-                {/* 分類圓餅圖卡片 (台股、美股、基金等) */}
-                {(dashTab !== 'ALL' || renderData.items.length > 0) && (
-                  <div className="broker-card relative overflow-hidden">
-                    <div className="flex justify-between items-center mb-6">
-                      <h3 className="font-bold text-lg text-gray-800">{dashTab === 'ALL' ? '全資產分佈' : renderData.label}</h3>
-                      {dashTab !== 'ALL' && <button className="text-[#16A085] text-sm font-bold">看{renderData.label}明細 ></button>}
-                    </div>
-                    
-                    <div className="flex items-center gap-2 mb-4">
-                      <span className="text-gray-600 text-sm font-medium">庫存現值比例</span>
-                      <span className="text-[#16A085] text-sm font-bold flex items-center">總資產 <svg className="w-4 h-4 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg></span>
-                    </div>
-
-                    <div className="flex flex-row items-center gap-4 mb-6">
-                      {/* 左側：甜甜圈圖 */}
-                      <DonutChart items={renderData.items} totalValue={renderData.marketValue} />
-                      
-                      {/* 右側：自訂圖例 */}
-                      <div className="flex-1 space-y-2">
-                        {renderData.items.slice(0, 4).sort((a,b)=>b.marketValue-a.marketValue).map((item, idx) => (
-                          <div key={idx} className="flex items-center gap-2 text-sm">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor: CHART_COLORS[idx]}}></span>
-                            <span className="text-gray-500 font-mono w-10">{((item.marketValue/renderData.marketValue)*100).toFixed(1)}%</span>
-                            <span className="text-gray-700 font-bold truncate max-w-[80px]">{item.name || item.symbol}</span>
+                {/* 庫存部位清單 */}
+                <div className="bento-card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-800">現有庫存部位</h3>
+                    <span className="text-xs text-slate-400">點擊標的可看專屬分析與走勢</span>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {portfolio.holdings.length === 0 ? (
+                      <div className="p-10 text-center text-slate-400">目前沒有庫存部位喔。</div>
+                    ) : (
+                      portfolio.holdings.map((h, i) => (
+                        <div key={i} onClick={() => setSelectedAsset(h)} className="p-4 flex justify-between items-center hover:bg-slate-50 cursor-pointer transition-colors group">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-extrabold text-slate-900 text-lg group-hover:text-blue-600 transition-colors">{h.name || h.symbol}</span>
+                              <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded uppercase font-bold">{h.assetType === 'FUND' ? '基金' : '股票'}</span>
+                            </div>
+                            <div className="text-xs text-slate-500 font-mono mt-0.5">{h.qty.toFixed(h.assetType==='FUND'?4:0)} {h.assetType==='FUND'?'單位':'股'} • 均價 {h.avgCost.toFixed(2)}</div>
                           </div>
-                        ))}
-                        {renderData.items.length > 4 && (
-                           <div className="flex items-center gap-2 text-sm">
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{backgroundColor: CHART_COLORS[4]}}></span>
-                            <span className="text-gray-500 font-mono w-10">
-                              {((renderData.items.slice(4).reduce((sum,i)=>sum+i.marketValue,0)/renderData.marketValue)*100).toFixed(1)}%
-                            </span>
-                            <span className="text-gray-700 font-bold">其他</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-between items-end border-t border-gray-100 pt-4">
-                      <div>
-                        <p className="text-xs text-gray-500 mb-0.5">總成本</p>
-                        <p className="font-bold text-gray-800 text-lg">{fmtM(renderData.cost)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500 mb-0.5 flex items-center gap-1 justify-end">不含息參考報酬 <span className="w-3 h-3 border border-gray-300 rounded-full text-[8px] flex items-center justify-center">i</span></p>
-                        <p className={`font-bold text-lg ${getColorClass(renderData.unrealized)}`}>
-                          {renderData.unrealized > 0 ? '+' : ''}{fmtM(renderData.unrealized)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 庫存明細列表 (可手動修改淨值) */}
-                <div className="broker-card p-0 overflow-hidden mt-4">
-                  <div className="px-5 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                    <h3 className="font-bold text-gray-800">各別庫存明細</h3>
-                    <span className="text-xs text-gray-400">可點擊右側手動修改淨值</span>
-                  </div>
-                  <div className="divide-y divide-gray-100">
-                    {renderData.items.map((h, i) => (
-                      <div key={i} className="p-4 flex justify-between items-center">
-                        <div className="flex-1">
-                          <div className="font-bold text-gray-900">{h.name || h.symbol}</div>
-                          <div className="text-xs text-gray-500 font-mono mt-0.5">{h.shares || h.qty} {h.category==='FUND'?'單位':'股'} • 均價 {h.avgCost.toFixed(2)}</div>
-                        </div>
-                        <div className="text-right flex flex-col items-end gap-1">
-                          {/* 可編輯的現價欄位 */}
-                          <input type="number" step="0.01" value={h.currentPrice||''} 
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
-                              if(!isNaN(val)) db.collection('users').doc(user.uid).collection('settings').doc('marketPrices').set({[h.symbol]: val}, {merge:true});
-                            }} 
-                            className="w-20 text-right font-bold text-gray-800 bg-gray-100 px-2 py-1 rounded outline-none focus:bg-white focus:ring-1 focus:ring-[#16A085] transition-all" 
-                          />
-                          <div className={`text-sm font-bold ${getColorClass(h.unrealized)}`}>
-                            {h.unrealized > 0 ? '+' : ''}{fmtM(h.unrealized)}
+                          <div className="text-right flex flex-col items-end gap-1">
+                            <div className="font-bold text-slate-800 font-mono">${fmtM(h.marketValue)}</div>
+                            <div className={`text-sm font-bold ${getColorClass(h.unrealized)}`}>
+                              {h.unrealized > 0 ? '+' : ''}{fmtM(h.unrealized)} ({h.roi > 0 ? '+' : ''}{h.roi.toFixed(1)}%)
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                 </div>
               </>
             )}
 
-            {/* 視圖：交易明細 */}
-            {bottomNav === 'history' && (
-              <div className="broker-card p-0">
-                <div className="px-5 py-4 border-b border-gray-100 bg-gray-50"><h3 className="font-bold text-gray-800">所有交易明細</h3></div>
-                <div className="divide-y divide-gray-100">
-                  {transactions.slice().reverse().map(tx => (
-                    <div key={tx.id} className="p-4 flex gap-4 items-center">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${tx.type === 'buy' ? 'bg-[#E53935]/10 text-[#E53935]' : tx.type === 'dividend_reinvest' ? 'bg-blue-100 text-blue-600' : 'bg-[#4CAF50]/10 text-[#4CAF50]'}`}>
-                        {tx.type === 'buy' ? '買/申' : tx.type === 'dividend_reinvest' ? '配息' : '賣/贖'}
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-bold text-gray-900">{tx.name || tx.symbol}</div>
-                        <div className="text-xs text-gray-500 font-mono">{tx.date} • {tx.price} x {tx.shares}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-gray-900">${fmtM(tx.netAmount)}</div>
-                        <button onClick={()=>{ if(window.confirm('確定刪除？')) db.collection('users').doc(user.uid).collection('transactions').doc(tx.id).delete(); }} className="text-red-400 text-xs mt-1">刪除</button>
-                      </div>
-                    </div>
-                  ))}
+            {/* 視圖：歷史與日誌 */}
+            {activeTab === 'history' && (
+              <div className="bento-card overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                  <h3 className="font-bold text-slate-800">結構化交易日誌</h3>
+                  <button onClick={()=>openTradeModal()} className="bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-md">+ 新增交易</button>
                 </div>
-              </div>
-            )}
-            
-            {/* 視圖：出入金 */}
-            {bottomNav === 'cash' && (
-              <div className="broker-card p-0">
-                <div className="px-5 py-4 border-b border-gray-100 bg-gray-50"><h3 className="font-bold text-gray-800">資金流水帳</h3></div>
-                <div className="divide-y divide-gray-100">
-                  {cashFlows.slice().reverse().map(cf => (
-                    <div key={cf.id} className="p-4 flex justify-between items-center">
-                      <div>
-                        <div className={`font-bold text-sm ${cf.type==='deposit'?'text-blue-600':cf.type==='withdraw'?'text-gray-800':'text-[#4CAF50]'}`}>
-                          {cf.type==='deposit'?'入金儲值':cf.type==='withdraw'?'提領出金':'領取股息'}
-                        </div>
-                        <div className="text-xs text-gray-500 font-mono mt-0.5">{cf.date} {cf.notes&& `• ${cf.notes}`}</div>
+                <div className="divide-y divide-slate-100">
+                  {transactions.slice().reverse().map(tx => (
+                    <div key={tx.id} className="p-5 hover:bg-slate-50 transition-colors relative group">
+                      <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={()=>openTradeModal(tx)} className="bg-white border border-slate-200 p-1.5 rounded-md shadow-sm text-blue-600 hover:bg-blue-50">✏️</button>
+                        <button onClick={()=>{ if(window.confirm('確定刪除這筆交易紀錄？')) db.collection('users').doc(user.uid).collection('transactions').doc(tx.id).delete(); }} className="bg-white border border-slate-200 p-1.5 rounded-md shadow-sm text-red-500 hover:bg-red-50">🗑️</button>
                       </div>
-                      <div className="font-bold text-gray-900">${fmtM(cf.amount)}</div>
+                      
+                      <div className="flex items-start gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-extrabold text-sm shadow-sm flex-shrink-0 ${tx.type === 'buy' ? 'bg-red-50 text-red-600 border border-red-100' : tx.type === 'dividend_reinvest' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                          {tx.type === 'buy' ? '買進' : tx.type === 'dividend_reinvest' ? '配息' : '賣出'}
+                        </div>
+                        <div className="flex-1 pr-16">
+                          <div className="font-extrabold text-slate-900 text-lg">{tx.name || tx.symbol} <span className="text-[10px] text-slate-400 font-normal ml-1">{tx.date}</span></div>
+                          
+                          <div className="flex flex-wrap gap-x-4 text-sm text-slate-600 mt-1 mb-2 font-mono">
+                            <span>{tx.assetType==='FUND'?'淨值':'價'}: ${tx.price}</span>
+                            <span>{tx.assetType==='FUND'?'單位':'量'}: {tx.shares}</span>
+                            <span className="font-bold text-slate-900">淨額: ${fmtM(tx.netAmount)}</span>
+                          </div>
+                          
+                          {/* 智慧標籤 (Smart Journal) */}
+                          <div className="flex flex-wrap gap-1.5">
+                            {tx.strategy && <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold">🏷️ {tx.strategy}</span>}
+                            {tx.reason && <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[10px] font-bold">💡 {tx.reason}</span>}
+                            {tx.confidence && tx.type === 'buy' && <span className="px-2 py-0.5 bg-amber-50 text-amber-600 rounded text-[10px] font-bold">⭐ {tx.confidence}星</span>}
+                          </div>
+                          {tx.notes && <p className="text-xs text-slate-500 italic mt-2 bg-white border border-slate-100 p-2 rounded-lg">"{tx.notes}"</p>}
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -503,107 +451,242 @@
             )}
           </main>
 
-          {/* 底部導航列 (Bottom Navigation) */}
-          <nav className="fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around items-center pb-safe pt-2 px-2 z-20 shadow-[0_-2px_10px_rgba(0,0,0,0.02)]">
-            <button onClick={()=>setBottomNav('history')} className={`flex flex-col items-center p-2 w-16 ${bottomNav==='history'?'text-[#16A085]':'text-gray-400'}`}>
-              <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
-              <span className="text-[10px] font-medium">明細</span>
+          {/* 移動端底部快捷列 */}
+          <div className="md:hidden fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-200 pb-safe pt-2 px-4 flex justify-between z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+            <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="flex flex-col items-center p-2 text-slate-500">
+              <span className="text-xl mb-1">💰</span><span className="text-[10px] font-bold">資金</span>
             </button>
-            <button onClick={()=>setBottomNav('cash')} className={`flex flex-col items-center p-2 w-16 ${bottomNav==='cash'?'text-[#16A085]':'text-gray-400'}`}>
-               <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
-              <span className="text-[10px] font-medium">資金</span>
-            </button>
-            <div className="relative -top-5">
-              <button onClick={()=>{setFormData({assetType:'TW_STOCK', type:'buy', date:new Date().toISOString().split('T')[0]}); setIsModalOpen(true);}} className="w-14 h-14 bg-[#16A085] rounded-full text-white flex items-center justify-center shadow-lg shadow-[#16A085]/30 active:scale-95 transition-transform border-4 border-white">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+            <div className="relative -top-6">
+              <button onClick={()=>openTradeModal()} className="w-14 h-14 bg-slate-900 rounded-full text-white flex items-center justify-center shadow-lg shadow-slate-900/30 active:scale-95 border-4 border-white text-2xl font-bold">
+                +
               </button>
             </div>
-            <button onClick={()=>setBottomNav('account')} className={`flex flex-col items-center p-2 w-16 ${bottomNav==='account'?'text-[#16A085]':'text-gray-400'}`}>
-              <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>
-              <span className="text-[10px] font-medium">帳務</span>
+            <button onClick={()=>auth.signOut()} className="flex flex-col items-center p-2 text-slate-500">
+              <span className="text-xl mb-1">🚪</span><span className="text-[10px] font-bold">登出</span>
             </button>
-            <button onClick={()=>auth.signOut()} className={`flex flex-col items-center p-2 w-16 text-gray-400 hover:text-gray-600`}>
-              <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-              <span className="text-[10px] font-medium">登出</span>
-            </button>
-          </nav>
+          </div>
 
-          {/* --- 彈出視窗：新增交易 --- */}
-          {isModalOpen && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50">
-              <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col max-h-[90vh]">
-                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10">
-                  <h3 className="font-bold text-lg text-gray-800">記一筆紀錄</h3>
-                  <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 font-bold p-1">✕</button>
+          {/* --- Modal：個股詳細分析與走勢 --- */}
+          {selectedAsset && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+              <div className="bg-white w-full max-w-md rounded-[2rem] overflow-hidden flex flex-col shadow-2xl animate-fade-in-up">
+                <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start bg-slate-50">
+                  <div>
+                    <h3 className="font-extrabold text-2xl text-slate-900">{selectedAsset.name || selectedAsset.symbol}</h3>
+                    <p className="text-sm text-slate-500 font-mono mt-1">{selectedAsset.symbol} • {selectedAsset.assetType === 'FUND' ? '共同基金' : '股票'}</p>
+                  </div>
+                  <button onClick={() => setSelectedAsset(null)} className="bg-slate-200 text-slate-600 hover:bg-slate-300 w-8 h-8 rounded-full font-bold flex items-center justify-center">✕</button>
                 </div>
                 
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  if(formData.mode === 'cash') {
-                    await db.collection('users').doc(user.uid).collection('cashFlows').add({...formData, amount: parseFloat(formData.amount)||0});
-                  } else {
-                    let price = parseFloat(formData.price)||0, shares = parseFloat(formData.shares)||0;
-                    let fee = parseFloat(formData.fee)||0, tax = parseFloat(formData.tax)||0;
-                    let net = formData.type === 'dividend_reinvest' ? 0 : formData.type === 'buy' ? (price*shares + fee + tax) : (price*shares - fee - tax);
-                    await db.collection('users').doc(user.uid).collection('transactions').add({ ...formData, price, shares, fee, tax, netAmount: net, symbol: formData.symbol?.toUpperCase() || formData.name });
-                  }
-                  setIsModalOpen(false);
-                }} className="p-6 space-y-5 overflow-y-auto bg-gray-50">
-                  
-                  {/* 表單模式切換 */}
-                  <div className="flex bg-gray-200/50 p-1 rounded-xl">
-                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${formData.mode !== 'cash' ? 'bg-white shadow text-[#16A085]' : 'text-gray-500'}`}>
-                      <input type="radio" checked={formData.mode !== 'cash'} onChange={()=>setFormData({...formData, mode:'trade', assetType:'TW_STOCK'})} className="hidden"/> 買賣股票/基金
+                <div className="p-6 space-y-6">
+                  {/* 近期走勢圖 */}
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">近30日走勢參考</h4>
+                    <StockTrendChart asset={selectedAsset} />
+                  </div>
+
+                  {/* 庫存現況 */}
+                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div><p className="text-xs text-slate-500 mb-1">持有量</p><p className="font-bold text-slate-800 font-mono">{selectedAsset.qty.toFixed(selectedAsset.assetType==='FUND'?4:0)}</p></div>
+                    <div><p className="text-xs text-slate-500 mb-1">平均成本</p><p className="font-bold text-slate-800 font-mono">${selectedAsset.avgCost.toFixed(2)}</p></div>
+                    <div className="col-span-2 pt-2 border-t border-slate-200">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-slate-500">手動修改當前淨值/股價:</span>
+                        <input type="number" step="0.01" value={selectedAsset.currentPrice||''} 
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            if(!isNaN(val)) {
+                              db.collection('users').doc(user.uid).collection('settings').doc('marketPrices').set({[selectedAsset.symbol]: val}, {merge:true});
+                              setSelectedAsset({...selectedAsset, currentPrice: val, marketValue: selectedAsset.qty * val, unrealized: (selectedAsset.qty * val) - selectedAsset.totalCost, roi: (((selectedAsset.qty * val) - selectedAsset.totalCost) / selectedAsset.totalCost) * 100});
+                            }
+                          }} 
+                          className="w-24 text-right bg-white border border-slate-300 px-2 py-1 rounded-lg outline-none focus:border-blue-500 font-mono font-bold" 
+                        />
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <p className="text-sm font-bold text-slate-700">未實現損益 (帳面)</p>
+                        <div className="text-right">
+                          <p className={`font-extrabold text-xl ${getColorClass(selectedAsset.unrealized)}`}>{selectedAsset.unrealized > 0 ? '+' : ''}${fmtM(selectedAsset.unrealized)}</p>
+                          <p className={`text-xs font-bold ${getColorClass(selectedAsset.roi)}`}>{selectedAsset.roi > 0 ? '+' : ''}{selectedAsset.roi.toFixed(2)}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 歷史戰績 */}
+                  <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex justify-between items-center">
+                    <div>
+                      <p className="text-xs text-blue-600 font-bold uppercase mb-1">歷史戰績</p>
+                      <p className="text-sm text-slate-700 font-medium">過去在此標的累計落袋</p>
+                    </div>
+                    <p className={`text-2xl font-extrabold ${getColorClass(selectedAsset.realizedProfit)}`}>
+                      {selectedAsset.realizedProfit > 0 ? '+' : ''}${fmtM(selectedAsset.realizedProfit)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- Modal：新增/編輯 交易表單 (極簡基金邏輯) --- */}
+          {isTradeModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+              <div className="bg-white w-full max-w-xl rounded-[2rem] overflow-hidden flex flex-col max-h-[90vh] shadow-2xl">
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
+                  <h3 className="font-extrabold text-lg text-slate-800">{editingTradeId ? '✏️ 編輯交易日誌' : '📝 新增交易日誌'}</h3>
+                  <button onClick={() => setIsTradeModalOpen(false)} className="bg-slate-100 hover:bg-slate-200 text-slate-500 w-8 h-8 rounded-full font-bold flex items-center justify-center">✕</button>
+                </div>
+                
+                <form onSubmit={handleTradeSubmit} className="p-6 space-y-5 overflow-y-auto bg-slate-50/50">
+                  {/* 切換股票/基金模式 */}
+                  <div className="flex bg-slate-200/60 p-1.5 rounded-xl">
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer transition-all ${!tradeForm.isFundMode ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>
+                      <input type="radio" checked={!tradeForm.isFundMode} onChange={()=>setTradeForm({...tradeForm, isFundMode: false, assetType: 'TW_STOCK', type: 'buy', price:'', shares:'', amount:'', netAmount:''})} className="hidden"/> 📈 股票 / ETF
                     </label>
-                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${formData.mode === 'cash' ? 'bg-white shadow text-[#16A085]' : 'text-gray-500'}`}>
-                      <input type="radio" checked={formData.mode === 'cash'} onChange={()=>setFormData({...formData, mode:'cash', type:'deposit'})} className="hidden"/> 資金出入金
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer transition-all ${tradeForm.isFundMode ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>
+                      <input type="radio" checked={tradeForm.isFundMode} onChange={()=>setTradeForm({...tradeForm, isFundMode: true, assetType: 'FUND', type: 'buy', price:'', shares:'', amount:'', netAmount:''})} className="hidden"/> 🏦 共同基金
                     </label>
                   </div>
 
-                  {formData.mode !== 'cash' ? (
-                    <>
-                      <div className="flex gap-2">
-                         <select required value={formData.assetType} onChange={e=>setFormData({...formData, assetType: e.target.value})} className="flex-1 p-3 bg-white border border-gray-200 rounded-xl outline-none text-sm font-bold text-gray-700">
-                           <option value="TW_STOCK">台股</option><option value="US_STOCK">美股</option><option value="TW_ETF">ETF</option><option value="FUND">共同基金</option>
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex gap-2">
+                       {!tradeForm.isFundMode && (
+                         <select value={tradeForm.assetType} name="assetType" onChange={handleTradeChange} className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-700">
+                           <option value="TW_STOCK">台股</option><option value="US_STOCK">美股</option><option value="TW_ETF">ETF</option>
                          </select>
-                         <select required value={formData.type} onChange={e=>setFormData({...formData, type: e.target.value})} className="flex-1 p-3 bg-white border border-gray-200 rounded-xl outline-none text-sm font-bold text-gray-700">
-                           <option value="buy">買進/申購</option><option value="sell">賣出/贖回</option>
-                           {formData.assetType === 'FUND' && <option value="dividend_reinvest">配息再投資(加單位)</option>}
-                         </select>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className={formData.assetType==='FUND'?'col-span-2':''}>
-                          <input required type="text" placeholder={formData.assetType==='FUND'?'基金名稱':'股票代號'} value={formData.assetType==='FUND'?formData.name:formData.symbol} onChange={(e)=>{ if(formData.assetType==='FUND') setFormData({...formData, name: e.target.value, symbol: e.target.value}); else setFormData({...formData, symbol: e.target.value.toUpperCase()}); }} className="w-full p-3 border border-gray-200 rounded-xl outline-none font-bold uppercase"/>
+                       )}
+                       <select value={tradeForm.type} name="type" onChange={handleTradeChange} className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-700">
+                         <option value="buy">{tradeForm.isFundMode?'申購 (買進)':'買進'}</option>
+                         <option value="sell">{tradeForm.isFundMode?'贖回 (賣出)':'賣出'}</option>
+                         {tradeForm.isFundMode && <option value="dividend_reinvest">配息滾入 (加單位)</option>}
+                       </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {tradeForm.isFundMode ? (
+                        <div className="col-span-2">
+                          <label className="block text-[11px] font-bold text-slate-500 mb-1">基金名稱</label>
+                          <input required type="text" name="name" placeholder="如: 安聯台灣大壩" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold"/>
                         </div>
-                        {formData.assetType !== 'FUND' && (
-                          <input type="text" placeholder="標的名稱 (選填)" value={formData.name||''} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none"/>
-                        )}
-                        <input required type="date" value={formData.date} onChange={e=>setFormData({...formData, date: e.target.value})} className="col-span-2 w-full p-3 border border-gray-200 rounded-xl outline-none font-mono"/>
-                        <input required type="number" step="0.0001" placeholder={formData.assetType==='FUND'?'成交淨值':'成交單價'} value={formData.price||''} onChange={e=>setFormData({...formData, price: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none font-mono"/>
-                        <input required type="number" step="0.00001" placeholder={formData.assetType==='FUND'?'單位數':'成交股數'} value={formData.shares||''} onChange={e=>setFormData({...formData, shares: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none font-mono"/>
-                        {formData.type !== 'dividend_reinvest' && (
-                          <>
-                            <input type="number" step="1" placeholder={formData.assetType==='FUND'?'申購/手續費':'手續費'} value={formData.fee||''} onChange={e=>setFormData({...formData, fee: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none"/>
-                            <input type="number" step="1" placeholder={formData.assetType==='FUND'?'信託保管/贖回費':'交易稅'} value={formData.tax||''} onChange={e=>setFormData({...formData, tax: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none"/>
-                          </>
-                        )}
+                      ) : (
+                        <>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">股票代號</label>
+                            <input required type="text" name="symbol" placeholder="如: 2330" value={tradeForm.symbol||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold"/>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">股票名稱 (自動帶入)</label>
+                            <input type="text" name="name" placeholder="如: 台積電" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"/>
+                          </div>
+                        </>
+                      )}
+                      
+                      <div className="col-span-2">
+                        <label className="block text-[11px] font-bold text-slate-500 mb-1">交易日期</label>
+                        <input required type="date" name="date" value={tradeForm.date||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
                       </div>
-                    </>
-                  ) : (
-                    <>
-                      <select required value={formData.type} onChange={e=>setFormData({...formData, type: e.target.value})} className="w-full p-3 bg-white border border-gray-200 rounded-xl outline-none text-sm font-bold text-gray-700">
-                        <option value="deposit">💰 銀行轉入證券戶 (入金)</option><option value="withdraw">🏧 從證券戶提領 (出金)</option><option value="dividend">💵 領取現金股息</option>
-                      </select>
-                      <input required type="date" value={formData.date} onChange={e=>setFormData({...formData, date: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none font-mono"/>
-                      <input required type="number" step="1" placeholder="金額 (TWD)" value={formData.amount||''} onChange={e=>setFormData({...formData, amount: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none font-mono text-xl font-bold"/>
-                      <input type="text" placeholder="備註 (如: 0050配息)" value={formData.notes||''} onChange={e=>setFormData({...formData, notes: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none"/>
-                    </>
-                  )}
-                  
-                  <button type="submit" className="w-full bg-[#16A085] text-white font-bold py-4 rounded-xl shadow-md active:scale-95 transition-transform mt-4 text-lg">
-                    確認送出
+
+                      {/* --- 股票 vs 基金 的輸入邏輯分流 --- */}
+                      {tradeForm.isFundMode ? (
+                        <>
+                          <div className="col-span-2">
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">投入/贖回總資金 (TWD)</label>
+                            <input required type="number" step="1" name="amount" placeholder="例如: 10000" value={tradeForm.amount||''} onChange={handleTradeChange} className="w-full p-3 bg-white border border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-xl outline-none font-mono text-lg font-bold text-blue-700 shadow-inner"/>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">當日淨值 (用以換算單位)</label>
+                            <input required type="number" step="0.0001" name="price" placeholder="0.0000" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">獲得單位數 (系統試算)</label>
+                            <input readOnly type="text" name="shares" value={tradeForm.shares||'0.0000'} className="w-full p-3 bg-slate-100 border border-transparent rounded-xl outline-none font-mono text-slate-500 font-bold"/>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">成交單價</label>
+                            <input required type="number" step="0.0001" name="price" placeholder="0.00" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-500 mb-1">成交股數</label>
+                            <input required type="number" step="0.0001" name="shares" placeholder="0" value={tradeForm.shares||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"/>
+                          </div>
+                          {tradeForm.type !== 'dividend_reinvest' && (
+                            <>
+                              <div><label className="block text-[11px] font-bold text-slate-500 mb-1">手續費</label><input type="number" step="1" name="fee" value={tradeForm.fee||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"/></div>
+                              <div><label className="block text-[11px] font-bold text-slate-500 mb-1">交易稅</label><input type="number" step="1" name="tax" value={tradeForm.tax||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"/></div>
+                            </>
+                          )}
+                          <div className="col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-xl flex justify-between items-center mt-2">
+                            <span className="text-sm font-bold text-blue-800">帳戶淨收付金額 (試算)</span>
+                            <span className="font-extrabold text-lg text-blue-900">${fmtM(tradeForm.netAmount)}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 心理覆盤區 (Smart Journal) */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <h4 className="font-bold text-slate-800 text-sm">🧠 交易覆盤筆記</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-500 mb-1">策略歸屬</label>
+                        <select name="strategy" value={tradeForm.strategy||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-700">
+                          {STRATEGY_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      {tradeForm.type === 'buy' && (
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-500 mb-1">進場理由</label>
+                          <select name="reason" value={tradeForm.reason||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm text-slate-700">
+                            <option value="">選擇主要理由...</option>{BUY_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </div>
+                      )}
+                      {tradeForm.type === 'buy' && (
+                         <div className="col-span-2">
+                           <label className="block text-[11px] font-bold text-slate-500 mb-1">交易信心度: {tradeForm.confidence||3} 星</label>
+                           <input type="range" name="confidence" min="1" max="5" value={tradeForm.confidence||3} onChange={handleTradeChange} className="w-full accent-blue-600" />
+                         </div>
+                      )}
+                      <div className="col-span-2">
+                        <textarea name="notes" placeholder="寫下當時的情緒或備註..." value={tradeForm.notes||''} onChange={handleTradeChange} rows="2" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none text-sm"></textarea>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl shadow-lg transition-all text-lg mt-2">
+                    💾 儲存交易
                   </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* --- Modal：資金出入金 (Cash Flow) --- */}
+          {isCashModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+              <div className="bg-white w-full max-w-sm rounded-[2rem] overflow-hidden flex flex-col shadow-2xl">
+                <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+                  <h3 className="font-extrabold text-lg text-slate-800">💰 資金流水帳</h3>
+                  <button onClick={() => setIsCashModalOpen(false)} className="bg-slate-100 text-slate-500 w-8 h-8 rounded-full font-bold">✕</button>
+                </div>
+                <form onSubmit={async(e)=>{
+                  e.preventDefault();
+                  await db.collection('users').doc(user.uid).collection('cashFlows').add({...cashForm, amount: parseFloat(cashForm.amount)||0});
+                  setIsCashModalOpen(false);
+                }} className="p-6 space-y-5 bg-slate-50">
+                  <div className="flex bg-slate-200/60 p-1.5 rounded-xl">
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='deposit'?'bg-white shadow text-blue-600':'text-slate-500'}`}><input type="radio" checked={cashForm.type==='deposit'} onChange={()=>setCashForm({...cashForm, type:'deposit'})} className="hidden"/>入金</label>
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='withdraw'?'bg-white shadow text-slate-900':'text-slate-500'}`}><input type="radio" checked={cashForm.type==='withdraw'} onChange={()=>setCashForm({...cashForm, type:'withdraw'})} className="hidden"/>出金</label>
+                    <label className={`flex-1 text-center py-2 text-sm font-bold rounded-lg cursor-pointer ${cashForm.type==='dividend'?'bg-white shadow text-emerald-600':'text-slate-500'}`}><input type="radio" checked={cashForm.type==='dividend'} onChange={()=>setCashForm({...cashForm, type:'dividend'})} className="hidden"/>領股息</label>
+                  </div>
+                  <input required type="date" value={cashForm.date||''} onChange={e=>setCashForm({...cashForm, date: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-mono"/>
+                  <input required type="number" step="1" placeholder="金額 (TWD)" value={cashForm.amount||''} onChange={e=>setCashForm({...cashForm, amount: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-mono text-2xl font-bold text-blue-600"/>
+                  <input type="text" placeholder="備註 (如: 0050配息)" value={cashForm.notes||''} onChange={e=>setCashForm({...cashForm, notes: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-sm"/>
+                  <button type="submit" className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg mt-2 text-lg">新增紀錄</button>
                 </form>
               </div>
             </div>
