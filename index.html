@@ -73,6 +73,17 @@
     const db = firebase.firestore();
     const googleProvider = new firebase.auth.GoogleAuthProvider();
 
+    // --- 關鍵修復：定義表單需要的常數，避免程式崩潰 ---
+    const STRATEGY_TAGS = ['波段操作', '長期投資', '短線當沖', '存股領息', '智能圖片匯入', 'CSV 對帳單匯入', '其他'];
+    const BUY_REASONS = ['技術面突破', '基本面低估', '籌碼面集中', '跟單/消息面', '定期定額', '其他'];
+    const STOCK_DICTIONARY = {
+        '2330': { name: '台積電', category: 'TW_STOCK' },
+        '0050': { name: '元大台灣50', category: 'TW_ETF' },
+        '0056': { name: '元大高股息', category: 'TW_ETF' },
+        '00878': { name: '國泰永續高股息', category: 'TW_ETF' },
+        '006208': { name: '富邦台50', category: 'TW_ETF' },
+    };
+
     // --- 極簡單線 SVG 圖示庫 ---
     const IconBank = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg>;
     const IconGrid = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>;
@@ -199,10 +210,18 @@
         return () => { unsubTx(); unsubCash(); unsubPrice(); };
       }, [user]);
 
-      // --- 核心財務引擎 ---
+      // --- 核心財務引擎 (修正淨投入本金與損益邏輯) ---
       const portfolio = useMemo(() => {
         let holdings = {};
-        let sys = { totalDeposits: 0, totalWithdrawals: 0, availableCash: 0, totalRealized: 0, totalUnrealized: 0, totalMarketValue: 0 };
+        let sys = { 
+            totalDeposits: 0, 
+            totalWithdrawals: 0, 
+            availableCash: 0, 
+            totalRealized: 0, 
+            totalUnrealized: 0, 
+            totalMarketValue: 0,
+            totalInventoryCost: 0 // 新增：帳面庫存總成本
+        };
         
         let categoryStats = {
           TW_STOCK: { value: 0, color: ASSET_COLORS.TW_STOCK, label: ASSET_LABELS.TW_STOCK },
@@ -218,6 +237,7 @@
           else if (cf.type === 'withdraw') { sys.totalWithdrawals += amt; sys.availableCash -= amt; }
           else if (cf.type === 'dividend') { sys.availableCash += amt; sys.totalRealized += amt; }
         });
+        // 嚴格定義淨投入本金：基本投入的資金 (總入金 - 總出金)
         sys.netPrincipal = sys.totalDeposits - sys.totalWithdrawals;
         categoryStats.CASH.value = sys.availableCash;
 
@@ -260,7 +280,11 @@
             let unrealized = marketValue - h.totalCost;
             h.currentPrice = currentPrice; h.marketValue = marketValue; h.unrealized = unrealized;
             h.roi = h.totalCost > 0 ? (unrealized / h.totalCost) * 100 : 0;
-            sys.totalMarketValue += marketValue; sys.totalUnrealized += unrealized;
+            
+            sys.totalMarketValue += marketValue; 
+            sys.totalUnrealized += unrealized;
+            sys.totalInventoryCost += h.totalCost; // 計算目前庫存的本金
+            
             if(categoryStats[h.assetType]) categoryStats[h.assetType].value += marketValue;
           } else { h.currentPrice = 0; h.marketValue = 0; h.unrealized = 0; h.roi = 0; }
         });
@@ -419,9 +443,7 @@
 
           if(parsedTxs.length === 0) throw new Error('檔案中未能解析出任何交易紀錄。');
 
-          // --- 智慧對帳邏輯 (Reconciliation) ---
           const dbHashes = transactions.map(getTxHash);
-          
           let minDate = '9999-99-99', maxDate = '0000-00-00';
           parsedTxs.forEach(tx => {
              if(tx.date < minDate) minDate = tx.date;
@@ -462,8 +484,13 @@
       const handleLogin = async () => { try { await auth.signInWithPopup(googleProvider); } catch (e) { alert("登入失敗"); } };
       
       const openTradeModal = (tx = null) => {
-        if (tx) { setEditingTradeId(tx.id); setTradeForm({...tx, isFundMode: tx.assetType === 'FUND'}); } 
-        else { setEditingTradeId(null); setTradeForm({ date: new Date().toISOString().split('T')[0], isFundMode: false, assetType: 'TW_STOCK', type: 'buy', symbol: '', name: '', price: '', shares: '', amount: '', fee: '0', tax: '0', strategy: '波段操作', confidence: '3', reason: '' }); }
+        if (tx) { 
+            setEditingTradeId(tx.id); 
+            setTradeForm({...tx, isFundMode: tx.assetType === 'FUND'}); 
+        } else { 
+            setEditingTradeId(null); 
+            setTradeForm({ date: new Date().toISOString().split('T')[0], isFundMode: false, assetType: 'TW_STOCK', type: 'buy', symbol: '', name: '', price: '', shares: '', amount: '', fee: '0', tax: '0', strategy: '波段操作', confidence: '3', reason: '' }); 
+        }
         setIsTradeModalOpen(true);
       };
 
@@ -471,7 +498,8 @@
         const { name, value } = e.target;
         let newData = { ...tradeForm, [name]: value };
         
-        if (name === 'symbol' && !newData.isFundMode && STOCK_DICTIONARY[value.toUpperCase()]) {
+        // 修正：檢查 STOCK_DICTIONARY 是否有值，避免未定義錯誤
+        if (name === 'symbol' && !newData.isFundMode && STOCK_DICTIONARY && STOCK_DICTIONARY[value.toUpperCase()]) {
           newData.name = STOCK_DICTIONARY[value.toUpperCase()].name;
           newData.assetType = STOCK_DICTIONARY[value.toUpperCase()].category;
         }
@@ -546,11 +574,11 @@
                 <div className="bento-card p-6">
                   <div className="flex justify-between items-end mb-4">
                     <div>
-                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-1">Total Assets</p>
+                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-1">Total Assets (總資產)</p>
                       <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#2C3E50]">${fmtM(portfolio.sys.totalAssets)}</h2>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">淨投入本金</p>
+                      <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">淨投入本金 (入金-出金)</p>
                       <p className="font-bold text-[#2C3E50]">${fmtM(portfolio.sys.netPrincipal)}</p>
                     </div>
                   </div>
@@ -569,6 +597,18 @@
                       )
                     })}
                   </div>
+                  
+                  {/* 新增：本金細部拆分 */}
+                  <div className="flex justify-between mt-5 pt-4 border-t border-slate-100 text-sm">
+                      <div>
+                          <p className="text-[11px] font-bold text-[#7F8C8D] mb-1">可用資金 (現金池)</p>
+                          <p className="font-bold text-[#2C3E50]">${fmtM(portfolio.sys.availableCash)}</p>
+                      </div>
+                      <div className="text-right">
+                          <p className="text-[11px] font-bold text-[#7F8C8D] mb-1">帳面庫存本金</p>
+                          <p className="font-bold text-[#2C3E50]">${fmtM(portfolio.sys.totalInventoryCost)}</p>
+                      </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -583,13 +623,21 @@
                     </div>
                   </div>
 
+                  {}
                   <div className="flex flex-col gap-6">
                     <div className={`bento-card p-6 flex-1 flex flex-col justify-center relative overflow-hidden ${portfolio.sys.totalPnl >= 0 ? 'bg-red-50/40 border-red-100/50' : 'bg-emerald-50/40 border-emerald-100/50'}`}>
-                      <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${portfolio.sys.totalPnl >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>生涯總損益 (市場給的錢)</p>
-                      <h3 className={`text-4xl font-extrabold tracking-tight ${getColorClass(portfolio.sys.totalPnl)}`}>{portfolio.sys.totalPnl > 0 ? '+' : ''}${fmtM(portfolio.sys.totalPnl)}</h3>
+                      <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${portfolio.sys.totalPnl >= 0 ? 'text-red-500' : 'text-emerald-600'}`}>生涯總損益 (已實現 + 庫存未實現)</p>
+                      <h3 className={`text-4xl font-extrabold tracking-tight ${getColorClass(portfolio.sys.totalPnl)}`}>{portfolio.sys.totalPnl > 0 ? '+' : ''}{fmtM(portfolio.sys.totalPnl)}</h3>
+                      
                       <div className="flex justify-between mt-6 pt-4 border-t border-slate-200/50 text-sm font-medium">
-                        <div className="text-[#2C3E50]">已實現入袋 <span className="font-bold block">${fmtM(portfolio.sys.totalRealized)}</span></div>
-                        <div className="text-right text-[#2C3E50]">未實現浮動 <span className="font-bold block">${fmtM(portfolio.sys.totalUnrealized)}</span></div>
+                        <div className="text-[#2C3E50]">
+                           <span className="text-xs text-[#7F8C8D] block font-bold mb-1">目前庫存損益 (帳面)</span>
+                           <span className={`font-bold text-lg block ${getColorClass(portfolio.sys.totalUnrealized)}`}>{portfolio.sys.totalUnrealized > 0 ? '+' : ''}{fmtM(portfolio.sys.totalUnrealized)}</span>
+                        </div>
+                        <div className="text-right text-[#2C3E50]">
+                           <span className="text-xs text-[#7F8C8D] block font-bold mb-1">歷史已實現入袋</span>
+                           <span className={`font-bold text-lg block ${getColorClass(portfolio.sys.totalRealized)}`}>{portfolio.sys.totalRealized > 0 ? '+' : ''}{fmtM(portfolio.sys.totalRealized)}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -625,6 +673,7 @@
               </>
             )}
 
+            {}
             {/* 視圖：歷史與日誌 */}
             {activeTab === 'history' && (
               <div className="bento-card overflow-hidden min-h-[60vh]">
@@ -682,6 +731,7 @@
             )}
           </main>
 
+          {}
           {/* 移動端導覽列 */}
           <div className="md:hidden fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-100 pb-safe pt-2 px-4 flex justify-between z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.03)]">
             <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="flex flex-col items-center p-2 text-[#7F8C8D]"><IconWallet /><span className="text-[10px] font-bold mt-1">資金</span></button>
@@ -749,6 +799,7 @@
             </div>
           )}
 
+          {}
           {/* --- Modal：新增/編輯交易 --- */}
           {isTradeModalOpen && (
             <div className="fixed inset-0 bg-[#2C3E50]/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
@@ -795,7 +846,7 @@
                             <input required type="text" name="symbol" placeholder="如: 2330" value={tradeForm.symbol||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold text-[#2C3E50]"/>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (自動帶入)</label>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱</label>
                             <input type="text" name="name" placeholder="如: 台積電" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/>
                           </div>
                         </>
@@ -896,6 +947,7 @@
             </div>
           )}
 
+          {}
           {/* --- Modal：系統設定 (API Key) --- */}
           {isSettingsOpen && (
             <div className="fixed inset-0 bg-[#2C3E50]/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
