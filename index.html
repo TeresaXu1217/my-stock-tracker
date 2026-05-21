@@ -43,13 +43,12 @@
     
     .bento-card { background: var(--card-bg); border-radius: 24px; box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03); border: 1px solid rgba(0,0,0,0.02); transition: transform 0.2s ease, box-shadow 0.2s ease; }
     
-    .nav-btn { transition: all 0.2s; border-radius: 12px; }
+    .nav-btn { transition: all 0.2s; border-radius: 12px; white-space: nowrap; }
     .nav-btn.active { background-color: var(--text-main); color: white; box-shadow: 0 4px 12px rgba(44, 62, 80, 0.15); }
     
     .drop-zone { border: 2px dashed #CBD5E1; transition: all 0.2s ease; }
     .drop-zone.dragover { border-color: #3B82F6; background-color: #EFF6FF; }
 
-    /* Fix mobile hidden buttons */
     .mobile-action-btn { display: flex; opacity: 1; }
     @media (min-width: 768px) {
       .mobile-action-btn { display: none; opacity: 0; }
@@ -102,6 +101,8 @@
     const IconSettings = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
     const IconImage = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>;
     const IconRefresh = ({spinning}) => <svg className={spinning ? 'animate-spin' : ''} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
+    const IconPieChart = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>;
+    const IconDownload = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>;
 
     const ASSET_COLORS = { TW_STOCK: '#1E3A8A', US_STOCK: '#3B82F6', TW_ETF: '#0D9488', FUND: '#6366F1', CASH: '#94A3B8' };
     const ASSET_LABELS = { TW_STOCK: '台股', US_STOCK: '美股', TW_ETF: 'ETF', FUND: '基金', CASH: '現金' };
@@ -125,38 +126,6 @@
     };
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    
-    const callGeminiWithRetry = async (base64Image, mimeType) => {
-        let apiKey = localStorage.getItem('gemini_api_key') || ""; 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-        
-        const payload = {
-            contents: [{
-                role: "user",
-                parts: [
-                    { text: "請分析這張證券交易截圖（支援台股與美股），擷取「所有」交易資訊。若是美股可能有小數點股數與外幣。請以嚴格的 JSON 陣列 (Array) 格式輸出，不要包含任何 Markdown 標記或反白字元：\n[\n  {\n    \"date\": \"YYYY-MM-DD\",\n    \"name\": \"股票或基金名稱\",\n    \"symbol\": \"股票代號(台股純數字或美股如AAPL)\",\n    \"type\": \"buy 或 sell\",\n    \"price\": 單價(數字),\n    \"shares\": 股數或單位數(數字,可含小數),\n    \"fee\": 手續費(數字),\n    \"tax\": 交易稅(數字),\n    \"netAmount\": 淨收付金額(正數的絕對值)\n  }\n]" },
-                    { inlineData: { mimeType: mimeType, data: base64Image } }
-                ]
-            }],
-            generationConfig: { responseMimeType: "application/json" }
-        };
-        
-        let delays = [1000, 2000, 4000];
-        for (let i = 0; i < delays.length; i++) {
-            try {
-                const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-                if (!res.ok) throw new Error("API status " + res.status);
-                const data = await res.json();
-                let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
-                text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-                const parsed = JSON.parse(text);
-                return Array.isArray(parsed) ? parsed : [parsed];
-            } catch (e) {
-                if (i === delays.length - 1) throw e;
-                await sleep(delays[i]);
-            }
-        }
-    };
 
     function App() {
       const [user, setUser] = useState(null);
@@ -181,7 +150,11 @@
       const [reconData, setReconData] = useState({ toAdd: [], duplicates: [], orphans: [] });
 
       const [selectedAsset, setSelectedAsset] = useState(null);
+      const [manualPriceInput, setManualPriceInput] = useState('');
       const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
+
+      const [inventorySort, setInventorySort] = useState('pnl_desc');
+      const [historySort, setHistorySort] = useState('date_desc');
 
       useEffect(() => {
         const unsubscribe = auth.onAuthStateChanged((currentUser) => {
@@ -219,7 +192,8 @@
             totalRealized: 0, 
             totalUnrealized: 0, 
             totalMarketValue: 0,
-            totalInventoryCost: 0
+            totalInventoryCost: 0,
+            realizedLogs: [] // 收集所有已實現損益紀錄
         };
         
         let categoryStats = {
@@ -250,6 +224,8 @@
           let h = holdings[sym];
           let qty = parseFloat(tx.shares) || 0;
           let netAmount = parseFloat(tx.netAmount) || 0;
+          let fee = parseFloat(tx.fee) || 0;
+          let tax = parseFloat(tx.tax) || 0;
 
           if (tx.type === 'buy') {
             h.qty += qty; h.totalCost += netAmount; h.avgCost = h.totalCost / h.qty;
@@ -267,9 +243,22 @@
             }
             let profit = netAmount - realizedCost;
             h.realizedProfit += profit; 
-            h.realizedTotalCost += realizedCost; // 用於計算歷史 ROI%
+            h.realizedTotalCost += realizedCost;
             sys.totalRealized += profit; 
             sys.availableCash += netAmount;
+            
+            // 紀錄該筆賣出的細節至已實現陣列
+            sys.realizedLogs.push({
+                id: tx.id,
+                date: tx.date,
+                symbol: h.symbol,
+                name: h.name,
+                profit: profit,
+                buyCost: realizedCost,
+                sellAmount: netAmount,
+                fee: fee,
+                tax: tax
+            });
             
             h.qty -= qty; h.totalCost -= realizedCost;
             if (h.qty <= 0.0001) { h.qty = 0; h.totalCost = 0; h.avgCost = 0; h.buyQueue = []; }
@@ -278,7 +267,7 @@
 
         const allAssets = Object.values(holdings).filter(h => h.qty > 0 || h.realizedProfit !== 0); 
         
-        // 結算所有資產
+        // 結算所有資產 (總市值 = 總庫存現值)
         allAssets.forEach(h => {
           if (h.qty > 0) {
             let currentPrice = marketPrices[h.symbol] || h.avgCost;
@@ -288,7 +277,6 @@
             h.marketValue = marketValue; 
             h.unrealized = unrealized;
             
-            // 修正：補上之前遺漏的 h.roi 賦值，避免白畫面崩潰
             h.roi = h.totalCost > 0 ? (unrealized / h.totalCost) * 100 : 0;
             
             sys.totalMarketValue += marketValue; 
@@ -299,18 +287,23 @@
           } else { 
               h.currentPrice = 0; h.marketValue = 0; h.unrealized = 0; h.roi = 0; 
           }
-          
           h.historicalRoi = h.realizedTotalCost > 0 ? (h.realizedProfit / h.realizedTotalCost) * 100 : 0;
         });
 
-        sys.totalAssets = sys.totalMarketValue; // 依需求：總資產 = 庫存總市值
         sys.totalPnl = sys.totalRealized + sys.totalUnrealized;
-        // 不含息參考報酬率 = (未實現損益 / 總庫存成本)
         sys.unrealizedRoi = sys.totalInventoryCost > 0 ? (sys.totalUnrealized / sys.totalInventoryCost) * 100 : 0;
 
-        const currentHoldings = allAssets.filter(h => h.qty > 0).sort((a,b)=>b.marketValue - a.marketValue);
+        let currentHoldings = allAssets.filter(h => h.qty > 0);
         
-        // 分類庫存
+        // 庫存排序邏輯
+        currentHoldings.sort((a, b) => {
+            if (inventorySort === 'pnl_desc') return b.unrealized - a.unrealized;
+            if (inventorySort === 'pnl_asc') return a.unrealized - b.unrealized;
+            if (inventorySort === 'qty_desc') return b.qty - a.qty;
+            if (inventorySort === 'symbol_asc') return a.symbol.localeCompare(b.symbol);
+            return b.marketValue - a.marketValue; // default
+        });
+        
         const groupedHoldings = currentHoldings.reduce((acc, h) => {
             if (!acc[h.assetType]) acc[h.assetType] = [];
             acc[h.assetType].push(h);
@@ -318,7 +311,47 @@
         }, {});
 
         return { holdings: currentHoldings, groupedHoldings, allAssets, sys, categoryStats };
-      }, [transactions, cashFlows, marketPrices]);
+      }, [transactions, cashFlows, marketPrices, inventorySort]);
+
+      // 已實現損益分類邏輯
+      const realizedData = useMemo(() => {
+          let summary = {
+              total: { profit: 0, buyCost: 0, sellAmount: 0, fee: 0, tax: 0, items: [] },
+              thisYear: { profit: 0, buyCost: 0, sellAmount: 0, fee: 0, tax: 0, items: [] },
+              thisMonth: { profit: 0, buyCost: 0, sellAmount: 0, fee: 0, tax: 0, items: [] }
+          };
+          
+          const now = new Date();
+          const currentYear = now.getFullYear().toString();
+          const currentMonth = (now.getMonth() + 1).toString().padStart(2, '0');
+          const currentYm = `${currentYear}-${currentMonth}`;
+
+          portfolio.sys.realizedLogs.forEach(log => {
+              // 總體
+              summary.total.profit += log.profit; summary.total.buyCost += log.buyCost; summary.total.sellAmount += log.sellAmount; summary.total.fee += log.fee; summary.total.tax += log.tax;
+              summary.total.items.push(log);
+              
+              const logYear = log.date.substring(0, 4);
+              const logYm = log.date.substring(0, 7);
+              
+              // 本年
+              if (logYear === currentYear) {
+                  summary.thisYear.profit += log.profit; summary.thisYear.buyCost += log.buyCost; summary.thisYear.sellAmount += log.sellAmount; summary.thisYear.fee += log.fee; summary.thisYear.tax += log.tax;
+                  summary.thisYear.items.push(log);
+              }
+              // 本月
+              if (logYm === currentYm) {
+                  summary.thisMonth.profit += log.profit; summary.thisMonth.buyCost += log.buyCost; summary.thisMonth.sellAmount += log.sellAmount; summary.thisMonth.fee += log.fee; summary.thisMonth.tax += log.tax;
+                  summary.thisMonth.items.push(log);
+              }
+          });
+          
+          summary.total.items.sort((a,b) => new Date(b.date) - new Date(a.date));
+          summary.thisYear.items.sort((a,b) => new Date(b.date) - new Date(a.date));
+          summary.thisMonth.items.sort((a,b) => new Date(b.date) - new Date(a.date));
+
+          return summary;
+      }, [portfolio.sys.realizedLogs]);
 
       const DonutChart = ({ categoryStats, totalAssets }) => {
         const canvasRef = useRef(null);
@@ -353,7 +386,7 @@
           const newPrices = { ...marketPrices };
           
           for (let h of portfolio.holdings) {
-              if (h.assetType === 'FUND') continue; // 基金略過由自動抓取處理，可讓用戶手動更新
+              if (h.assetType === 'FUND') continue; // 基金由手動輸入
               try {
                   let querySymbol = h.symbol;
                   if (['TW_STOCK', 'TW_ETF'].includes(h.assetType) && /^[0-9A-Za-z]+$/.test(querySymbol) && !querySymbol.includes('.')) {
@@ -382,15 +415,13 @@
 
       const handleSymbolBlur = async (e) => {
           const sym = e.target.value.trim().toUpperCase();
-          if (!sym || tradeForm.name) return; // 如果已經填了名稱就略過
+          if (!sym) return; 
           
-          // 1. 優先查本地字典
           if (STOCK_DICTIONARY[sym]) {
               setTradeForm(prev => ({...prev, name: STOCK_DICTIONARY[sym].name, assetType: STOCK_DICTIONARY[sym].category}));
               return;
           }
           
-          // 2. 查無資料，呼叫 Yahoo API 進行模糊搜尋
           try {
               let query = sym;
               if (/^[0-9]+$/.test(sym)) query += '.TW';
@@ -411,9 +442,12 @@
                   if (foundName) {
                       setTradeForm(prev => ({...prev, name: foundName, assetType}));
                   }
+              } else {
+                  // 找不到就用代號當名稱
+                  setTradeForm(prev => ({...prev, name: sym}));
               }
           } catch (err) {
-              console.log("Auto-fetch symbol name failed", err);
+              setTradeForm(prev => ({...prev, name: sym}));
           }
       };
 
@@ -424,70 +458,60 @@
 
         try {
           let parsedTxs = [];
-          if (file.type.startsWith('image/')) {
-            setImportState({ status: 'processing', message: '啟動 AI 智能圖片識別...' });
-            if(!localStorage.getItem('gemini_api_key')) {
-                throw new Error("請先點擊右上角「設定」填寫 Gemini API Key，才能在外部網站使用圖片識別！");
-            }
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            await new Promise((resolve, reject) => {
-              reader.onload = async (ev) => {
-                try {
-                  const dataUrl = ev.target.result;
-                  const mimeType = dataUrl.split(';')[0].split(':')[1];
-                  const base64Data = dataUrl.split(',')[1];
-                  const results = await callGeminiWithRetry(base64Data, mimeType);
-                  
-                  results.forEach(res => {
-                    if (res && (res.name || res.symbol) && res.date) {
-                      let assetType = 'TW_STOCK';
-                      if (res.name && res.name.includes('基金')) assetType = 'FUND';
-                      else if (res.symbol && ['0050','0056','00878','006208'].includes(res.symbol)) assetType = 'TW_ETF';
-                      else if (res.symbol && /^[A-Z]+$/.test(res.symbol) && !/^\d+$/.test(res.symbol)) assetType = 'US_STOCK';
-                      
-                      parsedTxs.push({ ...res, assetType, strategy: '智能圖片匯入', confidence: 3, reason: '' });
-                    }
-                  });
-                  resolve();
-                } catch(err) { reject(err); }
-              };
-            });
-          } else if (file.name.endsWith('.csv')) {
+          if (file.name.endsWith('.csv')) {
             setImportState({ status: 'processing', message: '正在解析 CSV 檔案...' });
             const text = await file.text();
             const lines = text.split('\n').filter(l => l.trim());
             
-            const isUsFormat = lines[0].toLowerCase().includes('symbol') || lines[0].toLowerCase().includes('action');
-            
-            if (isUsFormat) {
-               // 簡易美股 CSV 解析 (支援 Symbol, Action, Quantity, Price, Amount)
-               const headers = parseCSVLine(lines[0].toLowerCase());
-               const symIdx = headers.findIndex(h => h.includes('symbol'));
-               const actIdx = headers.findIndex(h => h.includes('action'));
-               const qtyIdx = headers.findIndex(h => h.includes('quantity'));
-               const priceIdx = headers.findIndex(h => h.includes('price'));
-               const dateIdx = headers.findIndex(h => h.includes('date') || h.includes('time'));
-               
-               for (let i = 1; i < lines.length; i++) {
-                   const cols = parseCSVLine(lines[i]);
-                   if (cols.length > Math.max(symIdx, actIdx, qtyIdx) && cols[symIdx]) {
-                       const actionStr = cols[actIdx].toLowerCase();
-                       if (!actionStr.includes('buy') && !actionStr.includes('sell')) continue;
-                       
-                       const type = actionStr.includes('buy') ? 'buy' : 'sell';
-                       const symbol = cols[symIdx];
-                       const date = cols[dateIdx] ? new Date(cols[dateIdx]).toISOString().split('T')[0] : '2023-01-01';
-                       const shares = Math.abs(parseFloat(cols[qtyIdx])) || 0;
-                       const price = parseFloat(cols[priceIdx]) || 0;
-                       const netAmount = shares * price;
-                       
-                       parsedTxs.push({
-                           name: symbol, symbol: symbol, date: date, shares: shares, netAmount: netAmount, type: type, price: price, fee: 0, tax: 0,
-                           assetType: 'US_STOCK', strategy: 'CSV 對帳單匯入'
-                       });
-                   }
-               }
+            // 判斷是否為特殊複委託對帳單
+            if (lines[0].includes('代號') && lines[0].includes('原幣應收付金額')) {
+                const h = parseCSVLine(lines[0]);
+                const symIdx = h.indexOf('代號');
+                const nameIdx = h.indexOf('股票名稱');
+                const dateIdx = h.indexOf('交易日期');
+                const typeIdx = h.indexOf('買賣別');
+                const qtyIdx = h.indexOf('股數');
+                const priceIdx = h.indexOf('成交價');
+                const feeIdx = h.indexOf('手續費');
+                const otherFeeIdx = h.indexOf('其他費用');
+                const netIdx = h.indexOf('原幣應收付金額');
+
+                for (let i=1; i<lines.length; i++) {
+                    const cols = parseCSVLine(lines[i]);
+                    if (!cols[symIdx]) continue;
+
+                    let typeStr = cols[typeIdx] || '';
+                    let type = '';
+                    
+                    // 智慧轉換：分割後當作買進新股，分割前當作賣出舊股以平衡帳面
+                    if (typeStr.includes('買') || typeStr.includes('分割後')) type = 'buy';
+                    else if (typeStr.includes('賣') || typeStr.includes('分割前')) type = 'sell';
+                    else continue; 
+
+                    let shares = Math.abs(parseFloat(cols[qtyIdx])) || 0;
+                    let price = parseFloat(cols[priceIdx]) || 0;
+                    let fee = parseFloat(cols[feeIdx]) || 0;
+                    let tax = parseFloat(cols[otherFeeIdx]) || 0;
+                    let netAmount = Math.abs(parseFloat(cols[netIdx])) || 0;
+                    // 分割的 netAmount 如果為 0，手動補足成本
+                    if (netAmount === 0 && shares > 0 && price > 0) netAmount = shares * price;
+
+                    let date = cols[dateIdx].replace(/\//g, '-');
+
+                    parsedTxs.push({
+                        name: cols[nameIdx] || cols[symIdx],
+                        symbol: cols[symIdx],
+                        date: date,
+                        shares: shares,
+                        price: price,
+                        fee: fee,
+                        tax: tax,
+                        netAmount: netAmount,
+                        type: type,
+                        assetType: 'US_STOCK',
+                        strategy: '複委託匯入'
+                    });
+                }
             } else {
                 // 台股格式
                 const headerIdx = lines.findIndex(l => l.includes('股名') && l.includes('日期'));
@@ -511,7 +535,7 @@
                     }
                 }
             }
-          } else { throw new Error('不支援的檔案格式。'); }
+          } else { throw new Error('不支援的檔案格式，請上傳 CSV'); }
 
           if(parsedTxs.length === 0) throw new Error('檔案中未能解析出任何交易紀錄。');
 
@@ -528,13 +552,7 @@
              else toAdd.push(tx);
           });
 
-          const fileHashes = parsedTxs.map(getTxHash);
-          const orphans = transactions.filter(tx => {
-             if (tx.date >= minDate && tx.date <= maxDate) return !fileHashes.includes(getTxHash(tx));
-             return false;
-          });
-
-          setReconData({ toAdd, duplicates, orphans });
+          setReconData({ toAdd, duplicates, orphans: [] });
           setImportState({ status: 'review', message: '比對完成，請確認匯入結果。' });
 
         } catch (error) {
@@ -595,6 +613,20 @@
         setIsTradeModalOpen(false);
       };
 
+      const exportRealizedCSV = (dataItems, periodName) => {
+          let csv = '\uFEFF'; 
+          csv += '交易日期,股票代號,股票名稱,買進成本,賣出淨額,手續費,交易稅,已實現損益\n';
+          dataItems.forEach(d => {
+              csv += `${d.date},${d.symbol},${d.name},${d.buyCost.toFixed(2)},${d.sellAmount.toFixed(2)},${d.fee.toFixed(2)},${d.tax.toFixed(2)},${d.profit.toFixed(2)}\n`;
+          });
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `已實現損益_${periodName}.csv`;
+          a.click();
+      };
+
       if (loading) return <div className="flex h-screen items-center justify-center bg-[#F4F7F9] text-[#7F8C8D] font-bold">載入中...</div>;
       if (!user) {
         return (
@@ -609,40 +641,49 @@
         );
       }
 
-      const TAB_ORDER = ['TW_STOCK', 'TW_ETF', 'US_STOCK', 'FUND'];
+      const TAB_ORDER = ['FUND', 'TW_ETF', 'TW_STOCK', 'US_STOCK'];
+
+      // 將歷史紀錄排序
+      let sortedHistory = [...transactions];
+      if (historySort === 'date_desc') sortedHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+      else if (historySort === 'date_asc') sortedHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+      else if (historySort === 'symbol_asc') sortedHistory.sort((a, b) => (a.symbol||a.name).localeCompare(b.symbol||b.name));
+      else if (historySort === 'symbol_desc') sortedHistory.sort((a, b) => (b.symbol||b.name).localeCompare(a.symbol||a.name));
+      else if (historySort === 'shares_desc') sortedHistory.sort((a, b) => parseFloat(b.shares) - parseFloat(a.shares));
 
       return (
         <div className="min-h-screen max-w-5xl mx-auto md:pt-6">
           
-          <nav className="bg-white/90 backdrop-blur-md sticky top-0 z-20 md:rounded-2xl md:mb-6 border-b md:border border-slate-100 shadow-sm px-5 py-3 flex justify-between items-center">
-            <div className="flex items-center gap-3">
+          <nav className="bg-white/90 backdrop-blur-md sticky top-0 z-20 md:rounded-2xl md:mb-6 border-b md:border border-slate-100 shadow-sm px-3 py-3 flex justify-between items-center overflow-x-auto no-scrollbar">
+            <div className="flex items-center gap-3 pr-4 flex-shrink-0">
               <span className="text-[#2C3E50]"><IconBank /></span>
               <h1 className="font-extrabold text-xl text-[#2C3E50] tracking-tight hidden sm:block">Asset<span className="text-[#0D9488]">Track</span></h1>
             </div>
-            <div className="flex bg-slate-100/80 p-1 rounded-xl">
-              <button onClick={()=>setActiveTab('dashboard')} className={`nav-btn px-4 py-2 flex items-center gap-1.5 text-sm font-bold ${activeTab==='dashboard'?'active':'text-[#7F8C8D]'}`}><IconGrid /> 總覽</button>
-              <button onClick={()=>setActiveTab('history')} className={`nav-btn px-4 py-2 flex items-center gap-1.5 text-sm font-bold ${activeTab==='history'?'active':'text-[#7F8C8D]'}`}><IconList /> 明細</button>
+            <div className="flex bg-slate-100/80 p-1 rounded-xl flex-shrink-0 gap-1">
+              <button onClick={()=>setActiveTab('dashboard')} className={`nav-btn px-3 py-1.5 flex items-center gap-1.5 text-xs sm:text-sm font-bold ${activeTab==='dashboard'?'active':'text-[#7F8C8D]'}`}><IconGrid /> 總覽</button>
+              <button onClick={()=>setActiveTab('realized')} className={`nav-btn px-3 py-1.5 flex items-center gap-1.5 text-xs sm:text-sm font-bold ${activeTab==='realized'?'active':'text-[#7F8C8D]'}`}><IconPieChart /> 已實現</button>
+              <button onClick={()=>setActiveTab('history')} className={`nav-btn px-3 py-1.5 flex items-center gap-1.5 text-xs sm:text-sm font-bold ${activeTab==='history'?'active':'text-[#7F8C8D]'}`}><IconList /> 對帳</button>
             </div>
-            <div className="flex gap-2 items-center">
-              <button onClick={()=>setIsSettingsOpen(true)} className="text-[#7F8C8D] hover:text-[#2C3E50] p-2 transition-colors" title="設定"><IconSettings /></button>
-              <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="hidden md:flex items-center gap-1.5 bg-white border border-slate-200 text-[#2C3E50] px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition-colors"><IconWallet /> 資金池</button>
-              <button onClick={()=>auth.signOut()} className="bg-slate-100 text-[#7F8C8D] w-10 h-10 rounded-xl flex items-center justify-center font-bold hover:bg-slate-200 transition-colors" title="登出"><IconLogout /></button>
+            <div className="flex gap-2 items-center pl-4 flex-shrink-0">
+              <button onClick={()=>setIsSettingsOpen(true)} className="text-[#7F8C8D] hover:text-[#2C3E50] p-2 transition-colors hidden sm:block" title="設定"><IconSettings /></button>
+              <button onClick={()=>{setCashForm({type:'deposit', date:new Date().toISOString().split('T')[0], amount:''}); setIsCashModalOpen(true);}} className="hidden md:flex items-center gap-1.5 bg-white border border-slate-200 text-[#2C3E50] px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition-colors"><IconWallet /> 資金出入</button>
+              <button onClick={()=>auth.signOut()} className="bg-slate-100 text-[#7F8C8D] w-8 h-8 rounded-xl flex items-center justify-center font-bold hover:bg-slate-200 transition-colors hidden sm:flex" title="登出"><IconLogout /></button>
             </div>
           </nav>
 
           <main className="p-4 space-y-6">
             
-            {}
+            {/* 視圖：總覽 (Dashboard) */}
             {activeTab === 'dashboard' && (
               <>
                 <div className="bento-card p-6">
                   <div className="flex justify-between items-end mb-4">
                     <div>
-                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-1">庫存總市值 (Total Market Value)</p>
+                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-1">庫存總市值 (以目前市場現價計算)</p>
                       <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#2C3E50]">${fmtM(portfolio.sys.totalMarketValue)}</h2>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">帳面庫存本金</p>
+                      <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">庫存總成本 (您投入的資金)</p>
                       <p className="font-bold text-[#2C3E50]">${fmtM(portfolio.sys.totalInventoryCost)}</p>
                     </div>
                   </div>
@@ -665,7 +706,7 @@
                   
                   <div className="flex justify-between mt-5 pt-4 border-t border-slate-100 text-sm">
                       <div>
-                          <p className="text-[11px] font-bold text-[#7F8C8D] mb-1">帳戶可用資金 (現金池)</p>
+                          <p className="text-[11px] font-bold text-[#7F8C8D] mb-1">帳戶可用資金 (未來可投資用的資金池)</p>
                           <p className="font-bold text-[#94A3B8]">${fmtM(portfolio.sys.availableCash)}</p>
                       </div>
                       <div className="text-right flex items-center gap-3">
@@ -685,9 +726,9 @@
 
                   <div className="flex flex-col gap-4">
                     <div className="bento-card p-6 flex-1 flex flex-col justify-center bg-white border border-slate-100">
-                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-2">生涯總損益 (含歷史落袋與帳面)</p>
+                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-2">生涯總損益 (歷史已實現 + 帳面未實現)</p>
                       <h3 className={`text-4xl font-extrabold tracking-tight ${getColorClass(portfolio.sys.totalPnl)}`}>{portfolio.sys.totalPnl > 0 ? '+' : ''}{fmtM(portfolio.sys.totalPnl)}</h3>
-                      <p className="text-xs font-bold text-[#7F8C8D] mt-2">歷史已實現獲利: <span className={`${getColorClass(portfolio.sys.totalRealized)}`}>{portfolio.sys.totalRealized > 0 ? '+' : ''}${fmtM(portfolio.sys.totalRealized)}</span></p>
+                      <p className="text-xs font-bold text-[#7F8C8D] mt-2">歷史已實現落袋: <span className={`${getColorClass(portfolio.sys.totalRealized)}`}>{portfolio.sys.totalRealized > 0 ? '+' : ''}${fmtM(portfolio.sys.totalRealized)}</span></p>
                     </div>
 
                     <div className={`bento-card p-6 flex-1 flex flex-col justify-center ${portfolio.sys.totalUnrealized >= 0 ? 'bg-red-50/40 border-red-100/50' : 'bg-emerald-50/40 border-emerald-100/50'}`}>
@@ -701,9 +742,14 @@
                 </div>
 
                 <div className="bento-card overflow-hidden">
-                  <div className="px-6 py-5 border-b border-slate-100 bg-white flex justify-between items-center">
+                  <div className="px-5 py-4 border-b border-slate-100 bg-white flex justify-between items-center">
                     <h3 className="font-bold text-[#2C3E50] text-lg">現有庫存明細</h3>
-                    <span className="text-xs text-[#7F8C8D] bg-slate-100 px-2 py-1 rounded-md">已依資產分類</span>
+                    <select value={inventorySort} onChange={e => setInventorySort(e.target.value)} className="bg-slate-50 border border-slate-200 text-xs text-[#2C3E50] font-bold px-2 py-1.5 rounded-lg outline-none cursor-pointer">
+                        <option value="pnl_desc">依損益 (由大到小)</option>
+                        <option value="pnl_asc">依損益 (由小到大)</option>
+                        <option value="qty_desc">依總股數 (由大到小)</option>
+                        <option value="symbol_asc">依股票代號排序</option>
+                    </select>
                   </div>
                   
                   {portfolio.holdings.length === 0 ? (
@@ -722,7 +768,7 @@
                             </div>
                             <div className="divide-y divide-slate-50">
                                 {items.map((h, i) => (
-                                  <div key={i} onClick={() => setSelectedAsset(h)} className="p-5 flex justify-between items-center hover:bg-slate-50 cursor-pointer transition-colors group">
+                                  <div key={i} onClick={() => { setSelectedAsset(h); setManualPriceInput(h.currentPrice||''); }} className="p-5 flex justify-between items-center hover:bg-slate-50 cursor-pointer transition-colors group">
                                     <div className="flex-1">
                                       <div className="flex items-center gap-2 mb-1">
                                         <span className="font-extrabold text-[#2C3E50] text-lg group-hover:text-blue-600 transition-colors">{h.name || h.symbol}</span>
@@ -745,11 +791,97 @@
               </>
             )}
 
-            {}
+            {/* 視圖：已實現損益 (Realized) */}
+            {activeTab === 'realized' && (() => {
+              const [realizedSubTab, setRealizedSubTab] = useState('total'); // 'thisMonth', 'thisYear', 'total'
+              const currentData = realizedData[realizedSubTab];
+              const periodNames = { thisMonth: '本月', thisYear: '本年', total: '總體' };
+
+              return (
+                  <div className="bento-card overflow-hidden min-h-[60vh]">
+                      <div className="px-5 py-4 border-b border-slate-100 bg-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                          <h3 className="font-bold text-[#2C3E50] text-lg">已實現損益分析</h3>
+                          <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+                              <button onClick={()=>setRealizedSubTab('thisMonth')} className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${realizedSubTab==='thisMonth' ? 'bg-white shadow-sm text-[#2C3E50]' : 'text-[#7F8C8D]'}`}>本月</button>
+                              <button onClick={()=>setRealizedSubTab('thisYear')} className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${realizedSubTab==='thisYear' ? 'bg-white shadow-sm text-[#2C3E50]' : 'text-[#7F8C8D]'}`}>本年</button>
+                              <button onClick={()=>setRealizedSubTab('total')} className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${realizedSubTab==='total' ? 'bg-white shadow-sm text-[#2C3E50]' : 'text-[#7F8C8D]'}`}>總體</button>
+                          </div>
+                      </div>
+
+                      <div className="p-5 bg-slate-50 border-b border-slate-100 grid grid-cols-2 md:grid-cols-5 gap-4">
+                          <div className="col-span-2 md:col-span-1 p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center">
+                              <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">區間總損益</p>
+                              <p className={`text-2xl font-extrabold ${getColorClass(currentData.profit)}`}>{currentData.profit > 0 ? '+' : ''}{fmtM(currentData.profit)}</p>
+                          </div>
+                          <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center">
+                              <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">總賣出淨額</p>
+                              <p className="text-lg font-bold text-[#2C3E50]">${fmtM(currentData.sellAmount)}</p>
+                          </div>
+                          <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center">
+                              <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">總買進成本</p>
+                              <p className="text-lg font-bold text-[#2C3E50]">${fmtM(currentData.buyCost)}</p>
+                          </div>
+                          <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center">
+                              <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">手續費支出</p>
+                              <p className="text-lg font-bold text-[#E53935]">${fmtM(currentData.fee)}</p>
+                          </div>
+                          <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center">
+                              <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">交易稅支出</p>
+                              <p className="text-lg font-bold text-[#E53935]">${fmtM(currentData.tax)}</p>
+                          </div>
+                      </div>
+
+                      <div className="px-5 py-3 border-b border-slate-100 bg-white flex justify-between items-center">
+                          <span className="text-sm font-bold text-[#2C3E50]">區間交易明細 ({currentData.items.length} 筆)</span>
+                          <button onClick={()=>exportRealizedCSV(currentData.items, periodNames[realizedSubTab])} disabled={currentData.items.length===0} className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-100 transition-colors disabled:opacity-50">
+                              <IconDownload /> 匯出 Excel
+                          </button>
+                      </div>
+
+                      <div className="divide-y divide-slate-100 bg-white overflow-x-auto">
+                          {currentData.items.length === 0 ? (
+                              <div className="p-12 text-center text-[#7F8C8D] bg-slate-50/50">此區間尚無已實現紀錄</div>
+                          ) : (
+                              currentData.items.map((log, idx) => (
+                                  <div key={idx} className="p-4 flex items-center justify-between min-w-[500px]">
+                                      <div className="w-1/4">
+                                          <p className="font-bold text-[#2C3E50]">{log.name || log.symbol}</p>
+                                          <p className="text-[10px] text-[#7F8C8D] font-mono">{log.date}</p>
+                                      </div>
+                                      <div className="w-1/4 text-right">
+                                          <p className="text-[10px] font-bold text-[#7F8C8D]">賣出淨額</p>
+                                          <p className="font-bold text-[#2C3E50]">${fmtDec(log.sellAmount)}</p>
+                                      </div>
+                                      <div className="w-1/4 text-right">
+                                          <p className="text-[10px] font-bold text-[#7F8C8D]">買進成本</p>
+                                          <p className="font-bold text-[#2C3E50]">${fmtDec(log.buyCost)}</p>
+                                      </div>
+                                      <div className="w-1/4 text-right">
+                                          <p className="text-[10px] font-bold text-[#7F8C8D]">該筆損益</p>
+                                          <p className={`font-extrabold ${getColorClass(log.profit)}`}>{log.profit > 0 ? '+' : ''}${fmtDec(log.profit)}</p>
+                                      </div>
+                                  </div>
+                              ))
+                          )}
+                      </div>
+                  </div>
+              );
+            })()}
+
+            {/* 視圖：對帳與歷史紀錄 (History) */}
             {activeTab === 'history' && (
               <div className="bento-card overflow-hidden min-h-[60vh]">
                 <div className="px-5 py-4 border-b border-slate-100 bg-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                  <h3 className="font-bold text-[#2C3E50] text-lg">交易日誌 & 對帳</h3>
+                  <div className="flex items-center gap-3">
+                      <h3 className="font-bold text-[#2C3E50] text-lg">交易對帳單</h3>
+                      <select value={historySort} onChange={e => setHistorySort(e.target.value)} className="bg-slate-50 border border-slate-200 text-xs text-[#2C3E50] font-bold px-2 py-1.5 rounded-lg outline-none cursor-pointer">
+                          <option value="date_desc">依時間 (新至舊)</option>
+                          <option value="date_asc">依時間 (舊至新)</option>
+                          <option value="shares_desc">依股數 (由大到小)</option>
+                          <option value="symbol_asc">依代號 (A到Z)</option>
+                          <option value="symbol_desc">依代號 (Z到A)</option>
+                      </select>
+                  </div>
                   <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                     <button onClick={()=>openTradeModal(null, '期初建倉 (舊庫存)')} className="flex-1 sm:flex-none justify-center bg-amber-50 text-amber-700 border border-amber-200 text-xs px-3 py-2 flex items-center gap-1.5 rounded-xl font-bold shadow-sm hover:bg-amber-100 transition-colors">舊庫存建倉</button>
                     <button onClick={()=>setIsImportModalOpen(true)} className="flex-1 sm:flex-none justify-center bg-slate-100 text-[#2C3E50] text-xs px-3 py-2 flex items-center gap-1.5 rounded-xl font-bold shadow-sm hover:bg-slate-200 transition-colors"><IconUpload /> 智能匯入</button>
@@ -763,7 +895,7 @@
                 </div>
 
                 <div className="divide-y divide-slate-100">
-                  {transactions.slice().reverse().map(tx => {
+                  {sortedHistory.map(tx => {
                     const assetStats = portfolio.allAssets.find(a => a.symbol === (tx.symbol || tx.name));
                     const historicalPnl = assetStats ? assetStats.realizedProfit : 0;
                     const historicalRoi = assetStats ? assetStats.historicalRoi : 0;
@@ -781,12 +913,11 @@
                              {tx.type === 'buy' ? '買' : tx.type === 'dividend_reinvest' ? '配' : '賣'}
                            </div>
                            <div className="flex-1">
-                               <h4 className="font-extrabold text-[#2C3E50] text-base sm:text-lg cursor-pointer hover:text-blue-600" onClick={()=>{if(assetStats) setSelectedAsset(assetStats);}}>{tx.name || tx.symbol}</h4>
+                               <h4 className="font-extrabold text-[#2C3E50] text-base sm:text-lg cursor-pointer hover:text-blue-600" onClick={()=>{if(assetStats) { setSelectedAsset(assetStats); setManualPriceInput(assetStats.currentPrice||''); }}}>{tx.name || tx.symbol}</h4>
                                <span className="text-[10px] text-[#7F8C8D] font-mono block">{tx.date}</span>
                            </div>
                         </div>
                         
-                        {/* 修正手機版排版，移除過多的 padding right (sm:pr-16 -> 移除) */}
                         <div className="flex-1 w-full">
                           <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[#2C3E50] mt-1 mb-2 bg-white border border-slate-100 p-3 rounded-xl shadow-sm">
                             <span className="text-[#7F8C8D] whitespace-nowrap">{tx.assetType==='FUND'?'淨值':'價'}: <span className="font-bold text-[#2C3E50]">${tx.price}</span></span>
@@ -798,8 +929,8 @@
                             {tx.strategy && <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold ${tx.strategy==='期初建倉 (舊庫存)' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-slate-100 text-[#7F8C8D]'}`}>{tx.strategy}</span>}
                             {tx.reason && <span className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-md text-[10px] font-bold">原因: {tx.reason}</span>}
                             {historicalPnl !== 0 && (
-                              <span onClick={()=>{if(assetStats) setSelectedAsset(assetStats);}} className={`cursor-pointer px-2.5 py-1 rounded-md text-[10px] font-bold border ${historicalPnl > 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
-                                該標的戰績: {historicalPnl > 0 ? '+' : ''}{fmtM(historicalPnl)} ({historicalRoi > 0 ? '+' : ''}{historicalRoi.toFixed(1)}%)
+                              <span onClick={()=>{if(assetStats) { setSelectedAsset(assetStats); setManualPriceInput(assetStats.currentPrice||''); }}} className={`cursor-pointer px-2.5 py-1 rounded-md text-[10px] font-bold border ${historicalPnl > 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
+                                該標的累積戰績: {historicalPnl > 0 ? '+' : ''}{fmtM(historicalPnl)} ({historicalRoi > 0 ? '+' : ''}{historicalRoi.toFixed(1)}%)
                               </span>
                             )}
                           </div>
@@ -818,7 +949,7 @@
             <div className="relative -top-6">
               <button onClick={()=>openTradeModal()} className="w-14 h-14 bg-[#2C3E50] rounded-full text-white flex items-center justify-center shadow-xl shadow-[#2C3E50]/30 active:scale-95 border-[3px] border-white transition-transform"><IconPlus /></button>
             </div>
-            <button onClick={()=>auth.signOut()} className="flex flex-col items-center p-2 text-[#7F8C8D]"><IconLogout /><span className="text-[10px] font-bold mt-1">登出</span></button>
+            <button onClick={()=>setIsSettingsOpen(true)} className="flex flex-col items-center p-2 text-[#7F8C8D]"><IconSettings /><span className="text-[10px] font-bold mt-1">設定</span></button>
           </div>
 
           {/* Modal: Asset Details */}
@@ -842,9 +973,10 @@
                       <div className="col-span-2 pt-3 mt-1 border-t border-slate-200">
                         <div className="flex justify-between items-center mb-3">
                           <span className="text-xs font-bold text-[#7F8C8D]">手動修改現價/淨值:</span>
-                          <input type="number" step="0.01" value={selectedAsset.currentPrice||''} 
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
+                          <input type="number" step="0.01" value={manualPriceInput} 
+                            onChange={(e) => setManualPriceInput(e.target.value)}
+                            onBlur={() => {
+                              const val = parseFloat(manualPriceInput);
                               if(!isNaN(val)) {
                                 db.collection('users').doc(user.uid).collection('settings').doc('marketPrices').set({[selectedAsset.symbol]: val}, {merge:true});
                               }
@@ -934,7 +1066,7 @@
                             <input required type="text" name="symbol" placeholder="輸入後點空白處自動帶入名稱" value={tradeForm.symbol||''} onChange={handleTradeChange} onBlur={handleSymbolBlur} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold text-[#2C3E50]"/>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (會自動抓取)</label>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (會自動抓取或手動輸入)</label>
                             <input type="text" name="name" placeholder="如: 台積電" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/>
                           </div>
                         </>
