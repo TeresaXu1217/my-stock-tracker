@@ -193,7 +193,8 @@
             totalUnrealized: 0, 
             totalMarketValue: 0,
             totalInventoryCost: 0,
-            realizedLogs: [] // 收集所有已實現損益紀錄
+            realizedLogs: [], // 收集所有已實現損益紀錄
+            splitCache: {} // 記錄分割前取出的成本，準備給分割後用
         };
         
         let categoryStats = {
@@ -212,7 +213,7 @@
         });
         sys.netPrincipal = sys.totalDeposits - sys.totalWithdrawals;
 
-        // 處理交易紀錄
+        // 處理交易紀錄 (核心引擎升級：支援 分割 / 一般除息)
         transactions.forEach(tx => {
           let sym = tx.symbol || tx.name;
           if (!holdings[sym]) { 
@@ -226,6 +227,7 @@
           let netAmount = parseFloat(tx.netAmount) || 0;
           let fee = parseFloat(tx.fee) || 0;
           let tax = parseFloat(tx.tax) || 0;
+          const logDate = tx.date || '';
 
           if (tx.type === 'buy') {
             h.qty += qty; h.totalCost += netAmount; h.avgCost = h.totalCost / h.qty;
@@ -234,34 +236,45 @@
           } else if (tx.type === 'dividend_reinvest') {
             h.qty += qty; h.avgCost = h.totalCost / h.qty;
             h.buyQueue.push({ qty, netAmount: 0 }); 
-          } else if (tx.type === 'sell') {
+          } else if (tx.type === 'split_in') { // 分割後增股 (完美承接剛才 split_out 拿出來的成本)
+            let carryCost = sys.splitCache[sym] || 0;
+            sys.splitCache[sym] = 0; 
+            h.qty += qty; h.totalCost += carryCost; h.avgCost = h.totalCost / h.qty;
+            h.buyQueue.push({ qty, netAmount: carryCost });
+          } else if (tx.type === 'sell' || tx.type === 'split_out') {
             let remainingToSell = qty; let realizedCost = 0;
             while (remainingToSell > 0 && h.buyQueue.length > 0) {
               let b = h.buyQueue[0];
               if (b.qty <= remainingToSell) { realizedCost += b.netAmount; remainingToSell -= b.qty; h.buyQueue.shift(); } 
               else { realizedCost += (b.netAmount / b.qty) * remainingToSell; b.qty -= remainingToSell; b.netAmount -= (b.netAmount / (b.qty + remainingToSell)) * remainingToSell; remainingToSell = 0; }
             }
-            let profit = netAmount - realizedCost;
-            h.realizedProfit += profit; 
-            h.realizedTotalCost += realizedCost;
-            sys.totalRealized += profit; 
-            sys.availableCash += netAmount;
             
-            // 紀錄該筆賣出的細節至已實現陣列
-            sys.realizedLogs.push({
-                id: tx.id,
-                date: tx.date,
-                symbol: h.symbol,
-                name: h.name,
-                profit: profit,
-                buyCost: realizedCost,
-                sellAmount: netAmount,
-                fee: fee,
-                tax: tax
-            });
+            if (tx.type === 'sell') {
+                let profit = netAmount - realizedCost;
+                h.realizedProfit += profit; 
+                h.realizedTotalCost += realizedCost;
+                sys.totalRealized += profit; 
+                sys.availableCash += netAmount;
+                
+                sys.realizedLogs.push({
+                    id: tx.id, date: logDate, symbol: h.symbol, name: h.name,
+                    profit: profit, buyCost: realizedCost, sellAmount: netAmount, fee: fee, tax: tax, action: '賣出'
+                });
+            } else if (tx.type === 'split_out') { // 分割前減股 (不認列損益，僅把成本拿出來給 split_in 攤平用)
+                sys.splitCache[sym] = (sys.splitCache[sym] || 0) + realizedCost;
+            }
             
             h.qty -= qty; h.totalCost -= realizedCost;
             if (h.qty <= 0.0001) { h.qty = 0; h.totalCost = 0; h.avgCost = 0; h.buyQueue = []; }
+          } else if (tx.type === 'dividend_cash') {
+              // 一般除息 (領取現金股利，股數不變)
+              h.realizedProfit += netAmount;
+              sys.totalRealized += netAmount;
+              sys.availableCash += netAmount;
+              sys.realizedLogs.push({
+                  id: tx.id, date: logDate, symbol: h.symbol, name: h.name,
+                  profit: netAmount, buyCost: 0, sellAmount: netAmount, fee: fee, tax: tax, action: '一般除息'
+              });
           }
         });
 
@@ -331,8 +344,9 @@
               summary.total.profit += log.profit; summary.total.buyCost += log.buyCost; summary.total.sellAmount += log.sellAmount; summary.total.fee += log.fee; summary.total.tax += log.tax;
               summary.total.items.push(log);
               
-              const logYear = log.date.substring(0, 4);
-              const logYm = log.date.substring(0, 7);
+              const logDate = log.date || ''; // 防止無 date 造成白屏
+              const logYear = logDate.substring(0, 4);
+              const logYm = logDate.substring(0, 7);
               
               // 本年
               if (logYear === currentYear) {
@@ -413,15 +427,28 @@
           setIsUpdatingPrices(false);
       };
 
+      // 自動記憶與防呆機制
       const handleSymbolBlur = async (e) => {
           const sym = e.target.value.trim().toUpperCase();
           if (!sym) return; 
           
+          // 1. 歷史記憶優先 (防呆)
+          const pastTx = transactions.find(t => (t.symbol === sym) && t.name);
+          if (pastTx) {
+              if (tradeForm.name && tradeForm.name !== pastTx.name) {
+                  alert(`⚠️ 系統提示：\n\n您輸入的代號 ${sym} 在歷史紀錄中名為「${pastTx.name}」。\n為避免資料分裂，系統已自動為您帶入歷史名稱！`);
+              }
+              setTradeForm(prev => ({...prev, name: pastTx.name, assetType: pastTx.assetType}));
+              return; // 已找到歷史紀錄，跳過 API 查詢
+          }
+
+          // 2. 靜態字典
           if (STOCK_DICTIONARY[sym]) {
               setTradeForm(prev => ({...prev, name: STOCK_DICTIONARY[sym].name, assetType: STOCK_DICTIONARY[sym].category}));
               return;
           }
           
+          // 3. API 自動查詢
           try {
               let query = sym;
               if (/^[0-9]+$/.test(sym)) query += '.TW';
@@ -443,7 +470,6 @@
                       setTradeForm(prev => ({...prev, name: foundName, assetType}));
                   }
               } else {
-                  // 找不到就用代號當名稱
                   setTradeForm(prev => ({...prev, name: sym}));
               }
           } catch (err) {
@@ -483,9 +509,12 @@
                     let typeStr = cols[typeIdx] || '';
                     let type = '';
                     
-                    // 智慧轉換：分割後當作買進新股，分割前當作賣出舊股以平衡帳面
-                    if (typeStr.includes('買') || typeStr.includes('分割後')) type = 'buy';
-                    else if (typeStr.includes('賣') || typeStr.includes('分割前')) type = 'sell';
+                    // 智慧轉換五大交易類型
+                    if (typeStr.includes('買')) type = 'buy';
+                    else if (typeStr.includes('賣')) type = 'sell';
+                    else if (typeStr.includes('一般除息')) type = 'dividend_cash';
+                    else if (typeStr.includes('分割後')) type = 'split_in';
+                    else if (typeStr.includes('分割前')) type = 'split_out';
                     else continue; 
 
                     let shares = Math.abs(parseFloat(cols[qtyIdx])) || 0;
@@ -493,8 +522,12 @@
                     let fee = parseFloat(cols[feeIdx]) || 0;
                     let tax = parseFloat(cols[otherFeeIdx]) || 0;
                     let netAmount = Math.abs(parseFloat(cols[netIdx])) || 0;
-                    // 分割的 netAmount 如果為 0，手動補足成本
-                    if (netAmount === 0 && shares > 0 && price > 0) netAmount = shares * price;
+                    
+                    // 特殊防呆 (避免檔案缺漏資料)
+                    if (netAmount === 0 && shares > 0 && price > 0 && type !== 'split_in' && type !== 'split_out') {
+                        netAmount = shares * price;
+                    }
+                    if (type === 'dividend_cash') shares = 0; // 現金股息不增減股數
 
                     let date = cols[dateIdx].replace(/\//g, '-');
 
@@ -519,7 +552,10 @@
                 for (let i = headerIdx + 1; i < lines.length; i++) {
                     const cols = parseCSVLine(lines[i]);
                     if (cols.length >= 9 && cols[0]) {
-                        const type = cols[4].includes('買') ? 'buy' : 'sell';
+                        const typeStr = cols[4];
+                        let type = typeStr.includes('買') ? 'buy' : 'sell';
+                        if (typeStr.includes('息')) type = 'dividend_cash';
+
                         const date = cols[1].replace(/\//g, '-');
                         const name = cols[0];
                         let assetType = name.includes('基金') ? 'FUND' : 'TW_STOCK';
@@ -591,10 +627,22 @@
           if (amount > 0 && price > 0) { newData.shares = (amount / price).toFixed(5); newData.netAmount = amount.toFixed(2); } 
           else { newData.shares = ''; newData.netAmount = ''; }
         } else {
+          // 動態計算淨收付金額 (根據選擇的五大交易別)
           const price = parseFloat(newData.price) || 0; const shares = parseFloat(newData.shares) || 0;
           const fee = parseFloat(newData.fee) || 0; const tax = parseFloat(newData.tax) || 0;
-          if (price > 0 && shares > 0) { newData.netAmount = newData.type === 'buy' ? (price * shares + fee + tax).toFixed(2) : (price * shares - fee - tax).toFixed(2); } 
-          else { newData.netAmount = ''; }
+          
+          if (newData.type === 'dividend_cash') {
+              newData.netAmount = (price * shares - fee - tax).toFixed(2); // 當成總配息輸入
+          } else if (newData.type === 'split_in' || newData.type === 'split_out') {
+              newData.netAmount = '0.00';
+              newData.price = '0';
+              newData.fee = '0';
+              newData.tax = '0';
+          } else if (price > 0 && shares > 0) { 
+              newData.netAmount = newData.type === 'buy' ? (price * shares + fee + tax).toFixed(2) : (price * shares - fee - tax).toFixed(2); 
+          } else { 
+              newData.netAmount = ''; 
+          }
         }
         setTradeForm(newData);
       };
@@ -615,9 +663,9 @@
 
       const exportRealizedCSV = (dataItems, periodName) => {
           let csv = '\uFEFF'; 
-          csv += '交易日期,股票代號,股票名稱,買進成本,賣出淨額,手續費,交易稅,已實現損益\n';
+          csv += '交易日期,資產分類,股票代號,股票名稱,交易類型,買進成本,淨收款金額,手續費,交易稅,已實現損益\n';
           dataItems.forEach(d => {
-              csv += `${d.date},${d.symbol},${d.name},${d.buyCost.toFixed(2)},${d.sellAmount.toFixed(2)},${d.fee.toFixed(2)},${d.tax.toFixed(2)},${d.profit.toFixed(2)}\n`;
+              csv += `${d.date},已實現,${d.symbol},${d.name},${d.action},${d.buyCost.toFixed(2)},${d.sellAmount.toFixed(2)},${d.fee.toFixed(2)},${d.tax.toFixed(2)},${d.profit.toFixed(2)}\n`;
           });
           const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
           const url = URL.createObjectURL(blob);
@@ -625,6 +673,18 @@
           a.href = url;
           a.download = `已實現損益_${periodName}.csv`;
           a.click();
+      };
+
+      const getTypeMeta = (type) => {
+          switch(type) {
+              case 'buy': return { label: '買', style: 'bg-red-50 text-red-600 border-red-100' };
+              case 'sell': return { label: '賣', style: 'bg-emerald-50 text-emerald-600 border-emerald-100' };
+              case 'dividend_cash': return { label: '息', style: 'bg-blue-50 text-blue-600 border-blue-100' };
+              case 'split_in': return { label: '增', style: 'bg-indigo-50 text-indigo-600 border-indigo-100' };
+              case 'split_out': return { label: '減', style: 'bg-amber-50 text-amber-600 border-amber-100' };
+              case 'dividend_reinvest': return { label: '配', style: 'bg-blue-50 text-blue-600 border-blue-100' };
+              default: return { label: '易', style: 'bg-slate-50 text-slate-600 border-slate-100' };
+          }
       };
 
       if (loading) return <div className="flex h-screen items-center justify-center bg-[#F4F7F9] text-[#7F8C8D] font-bold">載入中...</div>;
@@ -643,7 +703,6 @@
 
       const TAB_ORDER = ['FUND', 'TW_ETF', 'TW_STOCK', 'US_STOCK'];
 
-      // 將歷史紀錄排序
       let sortedHistory = [...transactions];
       if (historySort === 'date_desc') sortedHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
       else if (historySort === 'date_asc') sortedHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -814,7 +873,7 @@
                               <p className={`text-2xl font-extrabold ${getColorClass(currentData.profit)}`}>{currentData.profit > 0 ? '+' : ''}{fmtM(currentData.profit)}</p>
                           </div>
                           <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center">
-                              <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">總賣出淨額</p>
+                              <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">總賣出/領息淨額</p>
                               <p className="text-lg font-bold text-[#2C3E50]">${fmtM(currentData.sellAmount)}</p>
                           </div>
                           <div className="p-3 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col justify-center">
@@ -845,11 +904,14 @@
                               currentData.items.map((log, idx) => (
                                   <div key={idx} className="p-4 flex items-center justify-between min-w-[500px]">
                                       <div className="w-1/4">
-                                          <p className="font-bold text-[#2C3E50]">{log.name || log.symbol}</p>
-                                          <p className="text-[10px] text-[#7F8C8D] font-mono">{log.date}</p>
+                                          <div className="flex items-center gap-2">
+                                              <p className="font-bold text-[#2C3E50]">{log.name || log.symbol}</p>
+                                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{log.action}</span>
+                                          </div>
+                                          <p className="text-[10px] text-[#7F8C8D] font-mono mt-1">{log.date}</p>
                                       </div>
                                       <div className="w-1/4 text-right">
-                                          <p className="text-[10px] font-bold text-[#7F8C8D]">賣出淨額</p>
+                                          <p className="text-[10px] font-bold text-[#7F8C8D]">淨收款金額</p>
                                           <p className="font-bold text-[#2C3E50]">${fmtDec(log.sellAmount)}</p>
                                       </div>
                                       <div className="w-1/4 text-right">
@@ -899,6 +961,7 @@
                     const assetStats = portfolio.allAssets.find(a => a.symbol === (tx.symbol || tx.name));
                     const historicalPnl = assetStats ? assetStats.realizedProfit : 0;
                     const historicalRoi = assetStats ? assetStats.historicalRoi : 0;
+                    const typeMeta = getTypeMeta(tx.type);
                     
                     return (
                     <div key={tx.id} className="p-4 sm:p-6 hover:bg-slate-50/50 transition-colors relative group">
@@ -909,12 +972,15 @@
                       
                       <div className="flex flex-col sm:flex-row items-start gap-4">
                         <div className="flex items-center gap-3 w-full sm:w-auto sm:w-48">
-                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-xs shadow-sm flex-shrink-0 ${tx.type === 'buy' ? 'bg-red-50 text-red-600 border border-red-100' : tx.type === 'dividend_reinvest' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
-                             {tx.type === 'buy' ? '買' : tx.type === 'dividend_reinvest' ? '配' : '賣'}
+                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-sm shadow-sm flex-shrink-0 border ${typeMeta.style}`}>
+                             {typeMeta.label}
                            </div>
                            <div className="flex-1">
-                               <h4 className="font-extrabold text-[#2C3E50] text-base sm:text-lg cursor-pointer hover:text-blue-600" onClick={()=>{if(assetStats) { setSelectedAsset(assetStats); setManualPriceInput(assetStats.currentPrice||''); }}}>{tx.name || tx.symbol}</h4>
-                               <span className="text-[10px] text-[#7F8C8D] font-mono block">{tx.date}</span>
+                               <div className="flex items-center gap-2">
+                                 <h4 className="font-extrabold text-[#2C3E50] text-base sm:text-lg cursor-pointer hover:text-blue-600" onClick={()=>{if(assetStats) { setSelectedAsset(assetStats); setManualPriceInput(assetStats.currentPrice||''); }}}>{tx.name || tx.symbol}</h4>
+                                 <span className="text-[10px] text-white px-1.5 py-0.5 rounded shadow-sm flex-shrink-0" style={{backgroundColor: ASSET_COLORS[tx.assetType]}}>{ASSET_LABELS[tx.assetType]}</span>
+                               </div>
+                               <span className="text-[10px] text-[#7F8C8D] font-mono block mt-0.5">{tx.date}</span>
                            </div>
                         </div>
                         
@@ -958,8 +1024,11 @@
               <div className="bg-white w-full max-w-md rounded-[2rem] overflow-hidden flex flex-col shadow-2xl animate-fade-in-up">
                 <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start bg-slate-50">
                   <div>
-                    <h3 className="font-extrabold text-2xl text-[#2C3E50]">{selectedAsset.name || selectedAsset.symbol}</h3>
-                    <p className="text-xs text-[#7F8C8D] font-mono mt-1">{selectedAsset.symbol} • {ASSET_LABELS[selectedAsset.assetType]}</p>
+                    <div className="flex items-center gap-2 mb-1">
+                       <h3 className="font-extrabold text-2xl text-[#2C3E50]">{selectedAsset.name || selectedAsset.symbol}</h3>
+                       <span className="text-[10px] text-white px-1.5 py-0.5 rounded shadow-sm" style={{backgroundColor: ASSET_COLORS[selectedAsset.assetType]}}>{ASSET_LABELS[selectedAsset.assetType]}</span>
+                    </div>
+                    <p className="text-xs text-[#7F8C8D] font-mono">{selectedAsset.symbol}</p>
                   </div>
                   <button onClick={() => setSelectedAsset(null)} className="bg-slate-200 text-[#7F8C8D] hover:bg-slate-300 w-8 h-8 rounded-full font-bold flex items-center justify-center transition-colors"><IconX /></button>
                 </div>
@@ -1047,8 +1116,11 @@
                          </select>
                        )}
                        <select value={tradeForm.type} name="type" onChange={handleTradeChange} className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-[#2C3E50]">
-                         <option value="buy">{tradeForm.isFundMode?'申購 (買進)':'買進'}</option>
-                         <option value="sell">{tradeForm.isFundMode?'贖回 (賣出)':'賣出'}</option>
+                         <option value="buy">{tradeForm.isFundMode?'申購 (買進)':'買進 (增股)'}</option>
+                         <option value="sell">{tradeForm.isFundMode?'贖回 (賣出)':'賣出 (減股)'}</option>
+                         {!tradeForm.isFundMode && <option value="dividend_cash">一般除息 (領取現金)</option>}
+                         {!tradeForm.isFundMode && <option value="split_in">分割後 (無成本增股)</option>}
+                         {!tradeForm.isFundMode && <option value="split_out">分割前 (減去舊股)</option>}
                          {tradeForm.isFundMode && <option value="dividend_reinvest">配息滾入 (加單位)</option>}
                        </select>
                     </div>
@@ -1063,10 +1135,10 @@
                         <>
                           <div>
                             <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票代號</label>
-                            <input required type="text" name="symbol" placeholder="輸入後點空白處自動帶入名稱" value={tradeForm.symbol||''} onChange={handleTradeChange} onBlur={handleSymbolBlur} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold text-[#2C3E50]"/>
+                            <input required type="text" name="symbol" placeholder="輸入後點空白處自動檢查" value={tradeForm.symbol||''} onChange={handleTradeChange} onBlur={handleSymbolBlur} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold text-[#2C3E50]"/>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (會自動抓取或手動輸入)</label>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (會自動抓取/記憶)</label>
                             <input type="text" name="name" placeholder="如: 台積電" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/>
                           </div>
                         </>
@@ -1094,17 +1166,31 @@
                         </>
                       ) : (
                         <>
-                          <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">成交單價 (平均成本)</label><input required type="number" step="0.0001" name="price" placeholder="0.00" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/></div>
-                          <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">成交股數</label><input required type="number" step="0.0001" name="shares" placeholder="支援小數點" value={tradeForm.shares||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/></div>
-                          {tradeForm.type !== 'dividend_reinvest' && (
+                          <div>
+                              <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">
+                                  {tradeForm.type === 'dividend_cash' ? '每股配息' : (tradeForm.type === 'split_in' || tradeForm.type === 'split_out' ? '單價 (分割填 0 即可)' : '成交單價 (平均成本)')}
+                              </label>
+                              <input required type="number" step="0.0001" name="price" placeholder="0.00" value={tradeForm.price||''} onChange={handleTradeChange} disabled={tradeForm.type === 'split_in' || tradeForm.type === 'split_out'} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50] disabled:bg-slate-200 disabled:text-slate-400"/>
+                          </div>
+                          <div>
+                              <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">
+                                  {tradeForm.type === 'dividend_cash' ? '持股數 (可不填)' : '成交股數'}
+                              </label>
+                              <input type="number" step="0.0001" name="shares" placeholder="支援小數點" value={tradeForm.shares||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/>
+                          </div>
+                          
+                          {(tradeForm.type === 'buy' || tradeForm.type === 'sell' || tradeForm.type === 'dividend_cash') && (
                             <>
                               <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">手續費</label><input type="number" step="0.01" name="fee" value={tradeForm.fee||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/></div>
                               <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">交易稅</label><input type="number" step="0.01" name="tax" value={tradeForm.tax||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/></div>
                             </>
                           )}
+                          
                           <div className="col-span-2 bg-blue-50/50 border border-blue-100 p-3 rounded-xl flex justify-between items-center mt-2">
-                            <span className="text-sm font-bold text-blue-700">帳戶淨收付金額 (試算)</span>
-                            <span className="font-extrabold text-lg text-blue-800">${fmtM(tradeForm.netAmount)}</span>
+                            <span className="text-sm font-bold text-blue-700">
+                                {tradeForm.type === 'dividend_cash' ? '配息總收款淨額 (可手動修改)' : '帳戶淨收付金額 (試算)'}
+                            </span>
+                            <input required type="number" step="0.01" name="netAmount" value={tradeForm.netAmount||''} onChange={(e) => setTradeForm({...tradeForm, netAmount: e.target.value})} disabled={tradeForm.type === 'split_in' || tradeForm.type === 'split_out'} className="w-32 text-right bg-white p-2 rounded-lg border border-blue-200 font-extrabold text-lg text-blue-800 outline-none focus:border-blue-400 disabled:bg-blue-100/50 disabled:border-transparent"/>
                           </div>
                         </>
                       )}
