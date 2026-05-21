@@ -89,7 +89,6 @@
         'QQQ': { name: 'Invesco QQQ', category: 'US_STOCK' }
     };
 
-    // Icons
     const IconBank = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/><path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/></svg>;
     const IconGrid = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>;
     const IconList = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>;
@@ -126,6 +125,7 @@
     };
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    
     const callGeminiWithRetry = async (base64Image, mimeType) => {
         let apiKey = localStorage.getItem('gemini_api_key') || ""; 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
@@ -219,7 +219,7 @@
             totalRealized: 0, 
             totalUnrealized: 0, 
             totalMarketValue: 0,
-            totalInventoryCost: 0 // 帳面庫存總成本
+            totalInventoryCost: 0
         };
         
         let categoryStats = {
@@ -229,6 +229,7 @@
           FUND: { value: 0, color: ASSET_COLORS.FUND, label: ASSET_LABELS.FUND },
         };
 
+        // 處理現金流
         cashFlows.forEach(cf => {
           const amt = parseFloat(cf.amount) || 0;
           if (cf.type === 'deposit') { sys.totalDeposits += amt; sys.availableCash += amt; }
@@ -237,6 +238,7 @@
         });
         sys.netPrincipal = sys.totalDeposits - sys.totalWithdrawals;
 
+        // 處理交易紀錄
         transactions.forEach(tx => {
           let sym = tx.symbol || tx.name;
           if (!holdings[sym]) { 
@@ -265,7 +267,7 @@
             }
             let profit = netAmount - realizedCost;
             h.realizedProfit += profit; 
-            h.realizedTotalCost += realizedCost; // For calculating historical ROI%
+            h.realizedTotalCost += realizedCost; // 用於計算歷史 ROI%
             sys.totalRealized += profit; 
             sys.availableCash += netAmount;
             
@@ -276,19 +278,27 @@
 
         const allAssets = Object.values(holdings).filter(h => h.qty > 0 || h.realizedProfit !== 0); 
         
+        // 結算所有資產
         allAssets.forEach(h => {
           if (h.qty > 0) {
             let currentPrice = marketPrices[h.symbol] || h.avgCost;
             let marketValue = h.qty * currentPrice;
             let unrealized = marketValue - h.totalCost;
-            h.currentPrice = currentPrice; h.marketValue = marketValue; h.unrealized = unrealized;
+            h.currentPrice = currentPrice; 
+            h.marketValue = marketValue; 
+            h.unrealized = unrealized;
+            
+            // 修正：補上之前遺漏的 h.roi 賦值，避免白畫面崩潰
+            h.roi = h.totalCost > 0 ? (unrealized / h.totalCost) * 100 : 0;
             
             sys.totalMarketValue += marketValue; 
             sys.totalUnrealized += unrealized;
             sys.totalInventoryCost += h.totalCost;
             
             if(categoryStats[h.assetType]) categoryStats[h.assetType].value += marketValue;
-          } else { h.currentPrice = 0; h.marketValue = 0; h.unrealized = 0; }
+          } else { 
+              h.currentPrice = 0; h.marketValue = 0; h.unrealized = 0; h.roi = 0; 
+          }
           
           h.historicalRoi = h.realizedTotalCost > 0 ? (h.realizedProfit / h.realizedTotalCost) * 100 : 0;
         });
@@ -300,7 +310,7 @@
 
         const currentHoldings = allAssets.filter(h => h.qty > 0).sort((a,b)=>b.marketValue - a.marketValue);
         
-        // Group Holdings by type
+        // 分類庫存
         const groupedHoldings = currentHoldings.reduce((acc, h) => {
             if (!acc[h.assetType]) acc[h.assetType] = [];
             acc[h.assetType].push(h);
@@ -343,13 +353,14 @@
           const newPrices = { ...marketPrices };
           
           for (let h of portfolio.holdings) {
+              if (h.assetType === 'FUND') continue; // 基金略過由自動抓取處理，可讓用戶手動更新
               try {
                   let querySymbol = h.symbol;
-                  if (['TW_STOCK', 'TW_ETF'].includes(h.assetType) && /^[0-9]+$/.test(querySymbol)) {
+                  if (['TW_STOCK', 'TW_ETF'].includes(h.assetType) && /^[0-9A-Za-z]+$/.test(querySymbol) && !querySymbol.includes('.')) {
                       querySymbol += '.TW';
                   }
                   
-                  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${querySymbol}?interval=1d&range=1d`;
+                  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${querySymbol}?interval=1d&range=1d`;
                   const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
                   
                   const res = await fetch(proxyUrl);
@@ -367,6 +378,43 @@
           
           await db.collection('users').doc(user.uid).collection('settings').doc('marketPrices').set(newPrices, { merge: true });
           setIsUpdatingPrices(false);
+      };
+
+      const handleSymbolBlur = async (e) => {
+          const sym = e.target.value.trim().toUpperCase();
+          if (!sym || tradeForm.name) return; // 如果已經填了名稱就略過
+          
+          // 1. 優先查本地字典
+          if (STOCK_DICTIONARY[sym]) {
+              setTradeForm(prev => ({...prev, name: STOCK_DICTIONARY[sym].name, assetType: STOCK_DICTIONARY[sym].category}));
+              return;
+          }
+          
+          // 2. 查無資料，呼叫 Yahoo API 進行模糊搜尋
+          try {
+              let query = sym;
+              if (/^[0-9]+$/.test(sym)) query += '.TW';
+              
+              const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${query}`;
+              const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+              
+              const res = await fetch(proxyUrl);
+              const data = await res.json();
+              if (data.quotes && data.quotes.length > 0) {
+                  const foundName = data.quotes[0].shortname || data.quotes[0].longname;
+                  const typeDisp = data.quotes[0].exchange;
+                  
+                  let assetType = tradeForm.assetType;
+                  if (typeDisp === 'TAI' || typeDisp === 'TWO') assetType = foundName.includes('ETF') ? 'TW_ETF' : 'TW_STOCK';
+                  else if (['NYQ', 'NMS', 'NGM', 'BATS'].includes(typeDisp)) assetType = 'US_STOCK';
+                  
+                  if (foundName) {
+                      setTradeForm(prev => ({...prev, name: foundName, assetType}));
+                  }
+              }
+          } catch (err) {
+              console.log("Auto-fetch symbol name failed", err);
+          }
       };
 
       const handleFileUpload = async (e) => {
@@ -413,7 +461,7 @@
             const isUsFormat = lines[0].toLowerCase().includes('symbol') || lines[0].toLowerCase().includes('action');
             
             if (isUsFormat) {
-               // 簡易美股 CSV 解析 (Symbol, Action, Quantity, Price, Amount...)
+               // 簡易美股 CSV 解析 (支援 Symbol, Action, Quantity, Price, Amount)
                const headers = parseCSVLine(lines[0].toLowerCase());
                const symIdx = headers.findIndex(h => h.includes('symbol'));
                const actIdx = headers.findIndex(h => h.includes('action'));
@@ -520,11 +568,6 @@
         const { name, value } = e.target;
         let newData = { ...tradeForm, [name]: value };
         
-        if (name === 'symbol' && !newData.isFundMode && STOCK_DICTIONARY && STOCK_DICTIONARY[value.toUpperCase()]) {
-          newData.name = STOCK_DICTIONARY[value.toUpperCase()].name;
-          newData.assetType = STOCK_DICTIONARY[value.toUpperCase()].category;
-        }
-
         if (newData.isFundMode) {
           const amount = parseFloat(newData.amount) || 0; const price = parseFloat(newData.price) || 0;
           if (amount > 0 && price > 0) { newData.shares = (amount / price).toFixed(5); newData.netAmount = amount.toFixed(2); } 
@@ -589,6 +632,7 @@
 
           <main className="p-4 space-y-6">
             
+            {}
             {activeTab === 'dashboard' && (
               <>
                 <div className="bento-card p-6">
@@ -598,7 +642,7 @@
                       <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#2C3E50]">${fmtM(portfolio.sys.totalMarketValue)}</h2>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">總成本</p>
+                      <p className="text-[10px] font-bold text-[#7F8C8D] mb-1">帳面庫存本金</p>
                       <p className="font-bold text-[#2C3E50]">${fmtM(portfolio.sys.totalInventoryCost)}</p>
                     </div>
                   </div>
@@ -625,9 +669,9 @@
                           <p className="font-bold text-[#94A3B8]">${fmtM(portfolio.sys.availableCash)}</p>
                       </div>
                       <div className="text-right flex items-center gap-3">
-                          <button onClick={handleUpdatePrices} disabled={isUpdatingPrices} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 transition-colors">
+                          <button onClick={handleUpdatePrices} disabled={isUpdatingPrices} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 transition-colors shadow-sm">
                               <IconRefresh spinning={isUpdatingPrices} />
-                              {isUpdatingPrices ? '抓取中...' : '一鍵更新現價'}
+                              {isUpdatingPrices ? '同步中...' : '自動更新股價'}
                           </button>
                       </div>
                   </div>
@@ -640,10 +684,10 @@
                   </div>
 
                   <div className="flex flex-col gap-4">
-                    <div className="bento-card p-6 flex-1 flex flex-col justify-center bg-white">
-                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-2">生涯總損益 (含落袋與帳面)</p>
+                    <div className="bento-card p-6 flex-1 flex flex-col justify-center bg-white border border-slate-100">
+                      <p className="text-xs font-bold text-[#7F8C8D] uppercase tracking-wider mb-2">生涯總損益 (含歷史落袋與帳面)</p>
                       <h3 className={`text-4xl font-extrabold tracking-tight ${getColorClass(portfolio.sys.totalPnl)}`}>{portfolio.sys.totalPnl > 0 ? '+' : ''}{fmtM(portfolio.sys.totalPnl)}</h3>
-                      <p className="text-xs font-bold text-[#7F8C8D] mt-2">歷史已實現入袋: <span className={`${getColorClass(portfolio.sys.totalRealized)}`}>{portfolio.sys.totalRealized > 0 ? '+' : ''}${fmtM(portfolio.sys.totalRealized)}</span></p>
+                      <p className="text-xs font-bold text-[#7F8C8D] mt-2">歷史已實現獲利: <span className={`${getColorClass(portfolio.sys.totalRealized)}`}>{portfolio.sys.totalRealized > 0 ? '+' : ''}${fmtM(portfolio.sys.totalRealized)}</span></p>
                     </div>
 
                     <div className={`bento-card p-6 flex-1 flex flex-col justify-center ${portfolio.sys.totalUnrealized >= 0 ? 'bg-red-50/40 border-red-100/50' : 'bg-emerald-50/40 border-emerald-100/50'}`}>
@@ -701,6 +745,7 @@
               </>
             )}
 
+            {}
             {activeTab === 'history' && (
               <div className="bento-card overflow-hidden min-h-[60vh]">
                 <div className="px-5 py-4 border-b border-slate-100 bg-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -712,6 +757,11 @@
                   </div>
                 </div>
                 
+                <div className="bg-blue-50/50 p-4 border-b border-blue-100 text-xs text-blue-700 font-bold flex items-start gap-2">
+                   <span>💡</span>
+                   <span>補登早期買進的庫存，請點擊上方【舊庫存建倉】按鈕，並直接輸入「總股數」與「當時均價」，系統便會自動將其納入計算。</span>
+                </div>
+
                 <div className="divide-y divide-slate-100">
                   {transactions.slice().reverse().map(tx => {
                     const assetStats = portfolio.allAssets.find(a => a.symbol === (tx.symbol || tx.name));
@@ -720,15 +770,13 @@
                     
                     return (
                     <div key={tx.id} className="p-4 sm:p-6 hover:bg-slate-50/50 transition-colors relative group">
-                      
-                      {/* Mobile action buttons are always visible on mobile if needed, or handle differently. Here we use custom CSS to hide/show gracefully */}
                       <div className="absolute top-4 right-4 gap-2 mobile-action-btn md:group-hover:flex">
                         <button onClick={()=>openTradeModal(tx)} className="bg-white border border-slate-200 p-2 rounded-lg shadow-sm text-blue-600 hover:bg-blue-50"><IconEdit /></button>
                         <button onClick={()=>{ if(window.confirm('確定刪除？')) db.collection('users').doc(user.uid).collection('transactions').doc(tx.id).delete(); }} className="bg-white border border-slate-200 p-2 rounded-lg shadow-sm text-red-500 hover:bg-red-50"><IconTrash /></button>
                       </div>
                       
                       <div className="flex flex-col sm:flex-row items-start gap-4">
-                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                        <div className="flex items-center gap-3 w-full sm:w-auto sm:w-48">
                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-xs shadow-sm flex-shrink-0 ${tx.type === 'buy' ? 'bg-red-50 text-red-600 border border-red-100' : tx.type === 'dividend_reinvest' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                              {tx.type === 'buy' ? '買' : tx.type === 'dividend_reinvest' ? '配' : '賣'}
                            </div>
@@ -738,7 +786,8 @@
                            </div>
                         </div>
                         
-                        <div className="flex-1 w-full sm:pr-16">
+                        {/* 修正手機版排版，移除過多的 padding right (sm:pr-16 -> 移除) */}
+                        <div className="flex-1 w-full">
                           <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-[#2C3E50] mt-1 mb-2 bg-white border border-slate-100 p-3 rounded-xl shadow-sm">
                             <span className="text-[#7F8C8D] whitespace-nowrap">{tx.assetType==='FUND'?'淨值':'價'}: <span className="font-bold text-[#2C3E50]">${tx.price}</span></span>
                             <span className="text-[#7F8C8D] whitespace-nowrap">{tx.assetType==='FUND'?'單位':'量'}: <span className="font-bold text-[#2C3E50]">{tx.shares}</span></span>
@@ -882,10 +931,10 @@
                         <>
                           <div>
                             <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票代號</label>
-                            <input required type="text" name="symbol" placeholder="如: 2330 或是 AAPL" value={tradeForm.symbol||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold text-[#2C3E50]"/>
+                            <input required type="text" name="symbol" placeholder="輸入後點空白處自動帶入名稱" value={tradeForm.symbol||''} onChange={handleTradeChange} onBlur={handleSymbolBlur} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none uppercase font-bold text-[#2C3E50]"/>
                           </div>
                           <div>
-                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (自動帶入)</label>
+                            <label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">股票名稱 (會自動抓取)</label>
                             <input type="text" name="name" placeholder="如: 台積電" value={tradeForm.name||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/>
                           </div>
                         </>
@@ -914,7 +963,7 @@
                       ) : (
                         <>
                           <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">成交單價 (平均成本)</label><input required type="number" step="0.0001" name="price" placeholder="0.00" value={tradeForm.price||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/></div>
-                          <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">成交股數</label><input required type="number" step="0.0001" name="shares" placeholder="支援美股小數點" value={tradeForm.shares||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/></div>
+                          <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">成交股數</label><input required type="number" step="0.0001" name="shares" placeholder="支援小數點" value={tradeForm.shares||''} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-[#2C3E50]"/></div>
                           {tradeForm.type !== 'dividend_reinvest' && (
                             <>
                               <div><label className="block text-[11px] font-bold text-[#7F8C8D] mb-1">手續費</label><input type="number" step="0.01" name="fee" value={tradeForm.fee||'0'} onChange={handleTradeChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-[#2C3E50]"/></div>
